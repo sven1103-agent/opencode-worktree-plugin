@@ -57,10 +57,34 @@ jobs:
       - name: Publish package
         run: npm publish
 
+      - name: Prepare release summary
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          cat <<EOF > "$RUNNER_TEMP/release-notes.md"
+          ## Release Contents
+
+          - npm package: \`@sven1103/opencode-worktree-workflow@${VERSION}\`
+          - slash command assets: \`wt-new.md\`, \`wt-clean.md\`
+          - transparency guide: \`docs/releases.md\`
+
+          ## Install
+
+          - npm: \`npm install @sven1103/opencode-worktree-workflow\`
+          - commands: download the attached \`wt-new.md\` and \`wt-clean.md\` files into your OpenCode commands directory
+
+          ## Verification
+
+          - compare this release tag with \`package.json\`
+          - inspect the attached command files before installing them
+          - see \`docs/releases.md\` for the full release and verification guide
+          EOF
+
       - name: Create GitHub Release (if missing)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: true
           files: |
             commands/wt-new.md
             commands/wt-clean.md
