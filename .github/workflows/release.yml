@@ -1,0 +1,59 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Ensure default branch
+        run: |
+          if [ "$GITHUB_REF_NAME" != "${{ github.event.repository.default_branch }}" ]; then
+            echo "Run this workflow from ${{ github.event.repository.default_branch }}."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Ensure tag does not already exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ inputs.version }} already exists."
+            exit 1
+          fi
+
+      - name: Update package version
+        run: npm version "${{ inputs.version }}" --no-git-tag-version
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: release v${{ inputs.version }}"
+
+      - name: Create release tag
+        run: git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+
+      - name: Push commit and tag
+        run: |
+          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin "v${{ inputs.version }}"
