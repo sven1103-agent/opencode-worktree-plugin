@@ -15,6 +15,49 @@ Add the plugin package to your project config:
 
 OpenCode installs npm plugins with Bun when it starts.
 
+## Install slash commands
+
+OpenCode loads custom commands from either `.opencode/commands/` (project) or `~/.config/opencode/commands/` (global).
+
+This repo publishes `wt-new.md` and `wt-clean.md` as GitHub Release assets so you can install them without browsing the repository.
+
+Project install (latest release):
+
+```sh
+mkdir -p .opencode/commands
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-new.md"  -o ".opencode/commands/wt-new.md"
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-clean.md" -o ".opencode/commands/wt-clean.md"
+```
+
+```sh
+mkdir -p .opencode/commands
+wget -qO ".opencode/commands/wt-new.md"  "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-new.md"
+wget -qO ".opencode/commands/wt-clean.md" "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-clean.md"
+```
+
+Global install (latest release):
+
+```sh
+mkdir -p ~/.config/opencode/commands
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-new.md"  -o "$HOME/.config/opencode/commands/wt-new.md"
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-clean.md" -o "$HOME/.config/opencode/commands/wt-clean.md"
+```
+
+```sh
+mkdir -p ~/.config/opencode/commands
+wget -qO "$HOME/.config/opencode/commands/wt-new.md"  "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-new.md"
+wget -qO "$HOME/.config/opencode/commands/wt-clean.md" "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/wt-clean.md"
+```
+
+Pinned to a specific release tag:
+
+```sh
+VERSION=v0.1.0
+mkdir -p .opencode/commands
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/download/${VERSION}/wt-new.md"  -o ".opencode/commands/wt-new.md"
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/download/${VERSION}/wt-clean.md" -o ".opencode/commands/wt-clean.md"
+```
+
 ## What the plugin provides
 
 - `worktree_prepare`: create a worktree and matching branch from the latest default-branch commit
