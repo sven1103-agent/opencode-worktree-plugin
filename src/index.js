@@ -111,34 +111,74 @@ function parseWorktreeList(output) {
   return entries;
 }
 
-function formatPreview(candidates, defaultBranch) {
-  if (candidates.length === 0) {
-    return [
-      `No merged worktrees are ready for cleanup against ${defaultBranch}.`,
-      "",
-      "Use `/wt-clean apply` after merged branches appear here.",
-    ].join("\n");
-  }
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'"'"'`)}'`;
+}
+
+function formatWorktreeSummary(item) {
+  return `${item.branch || "(detached)"} -> ${item.path}${item.head ? ` (${item.head.slice(0, 12)})` : ""}`;
+}
+
+function formatCopyPasteCommands(item) {
+  const selector = item.branch || item.path;
+  const branchFlag = item.status === "safe" ? "-d" : "-D";
 
   return [
-    `Merged worktrees ready for cleanup against ${defaultBranch}:`,
-    ...candidates.map(
-      (candidate) =>
-        `- ${candidate.branch} -> ${candidate.path}${candidate.head ? ` (${candidate.head.slice(0, 12)})` : ""}`,
-    ),
+    `  copy: /wt-clean apply ${selector}`,
+    `  git:  git worktree remove ${shellQuote(item.path)} && git branch ${branchFlag} ${shellQuote(item.branch)}`,
+  ];
+}
+
+function formatPreviewSection(title, items, { includeCommands = false } = {}) {
+  if (items.length === 0) {
+    return [title, "- none"];
+  }
+
+  const lines = [title];
+
+  for (const item of items) {
+    lines.push(`- ${formatWorktreeSummary(item)}: ${item.reason}`);
+
+    if (includeCommands && item.branch) {
+      lines.push(...formatCopyPasteCommands(item));
+    }
+  }
+
+  return lines;
+}
+
+function formatPreview(grouped, defaultBranch) {
+  return [
+    `Worktrees connected to this repository against ${defaultBranch}:`,
     "",
-    "Run `/wt-clean apply` to remove these worktrees and delete their local branches.",
+    ...formatPreviewSection("Safe to clean automatically:", grouped.safe, { includeCommands: true }),
+    "",
+    ...formatPreviewSection("Needs review before cleanup:", grouped.review, { includeCommands: true }),
+    "",
+    ...formatPreviewSection("Not cleanable here:", grouped.blocked),
+    "",
+    "Run `/wt-clean apply` to remove only the safe group.",
+    "Run `/wt-clean apply <branch-or-path>` to also remove selected review items.",
   ].join("\n");
 }
 
-function formatCleanupSummary(defaultBranch, removed, failed) {
-  const lines = [`Cleaned worktrees merged into ${defaultBranch}:`];
+function formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors) {
+  const lines = [`Cleaned worktrees relative to ${defaultBranch}:`];
 
   if (removed.length === 0) {
     lines.push("- none removed");
   } else {
     for (const item of removed) {
-      lines.push(`- removed ${item.branch} -> ${item.path}`);
+      const modeLabel = item.selected ? "selected" : "auto";
+      lines.push(`- removed (${modeLabel}) ${item.branch} -> ${item.path}`);
+    }
+  }
+
+  if (requestedSelectors.length > 0) {
+    lines.push("");
+    lines.push("Requested selectors:");
+    for (const selector of requestedSelectors) {
+      lines.push(`- ${selector}`);
     }
   }
 
@@ -146,11 +186,79 @@ function formatCleanupSummary(defaultBranch, removed, failed) {
     lines.push("");
     lines.push("Cleanup skipped for:");
     for (const item of failed) {
-      lines.push(`- ${item.branch} -> ${item.path}: ${item.reason}`);
+      lines.push(`- ${item.branch || item.selector} -> ${item.path || "(no path)"}: ${item.reason}`);
     }
   }
 
   return lines.join("\n");
+}
+
+function selectorMatches(item, selector) {
+  const normalized = path.resolve(selector);
+  return item.branch === selector || item.path === normalized;
+}
+
+function classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, mergedIntoBase) {
+  const entryPath = path.resolve(entry.path);
+  const branchName = entry.branch;
+  const item = {
+    branch: branchName,
+    path: entryPath,
+    head: entry.head,
+    detached: Boolean(entry.detached),
+  };
+
+  if (!branchName || entry.detached) {
+    return {
+      ...item,
+      status: "blocked",
+      reason: !branchName ? "no branch" : "detached HEAD",
+      selectable: false,
+    };
+  }
+
+  if (entryPath === path.resolve(repoRoot)) {
+    return {
+      ...item,
+      status: "blocked",
+      reason: entryPath === activeWorktree ? "repository root, current worktree, protected branch" : "repository root",
+      selectable: false,
+    };
+  }
+
+  if (entryPath === activeWorktree) {
+    return {
+      ...item,
+      status: "blocked",
+      reason: "current worktree",
+      selectable: false,
+    };
+  }
+
+  if (protectedBranches.has(branchName)) {
+    return {
+      ...item,
+      status: "blocked",
+      reason: "protected branch",
+      selectable: false,
+    };
+  }
+
+  if (mergedIntoBase) {
+    return {
+      ...item,
+      status: "safe",
+      reason: "merged into default branch by git ancestry",
+      selectable: true,
+    };
+  }
+
+  return {
+    ...item,
+    status: "review",
+    reason: "not merged into default branch by git ancestry",
+    selectable: true,
+  };
 }
 
 export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
@@ -330,12 +438,16 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
         },
       }),
       worktree_cleanup: tool({
-        description: "Preview or clean merged git worktrees",
+        description: "Preview or clean git worktrees",
         args: {
           mode: tool.schema
             .enum(["preview", "apply"])
             .default("preview")
             .describe("Preview cleanup candidates or remove them"),
+          selectors: tool.schema
+            .array(tool.schema.string())
+            .default([])
+            .describe("Optional branch names or worktree paths to remove explicitly"),
         },
         async execute(args, context) {
           context.metadata({ title: `Clean worktrees (${args.mode})` });
@@ -348,47 +460,84 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
           const worktreeList = await git(["worktree", "list", "--porcelain"], { cwd: repoRoot });
           const entries = parseWorktreeList(worktreeList.stdout);
           const protectedBranches = new Set([defaultBranch, ...config.protectedBranches]);
-          const candidates = [];
+          const grouped = {
+            safe: [],
+            review: [],
+            blocked: [],
+          };
 
           for (const entry of entries) {
-            const entryPath = path.resolve(entry.path);
             const branchName = entry.branch;
+            let mergedIntoBase = false;
 
-            if (!branchName || entry.detached) {
-              continue;
-            }
-
-            if (entryPath === path.resolve(repoRoot) || entryPath === activeWorktree) {
-              continue;
-            }
-
-            if (protectedBranches.has(branchName)) {
-              continue;
-            }
-
-            const merged = await git(["merge-base", "--is-ancestor", branchName, baseRef], {
-              cwd: repoRoot,
-              allowFailure: true,
-            });
-
-            if (merged.exitCode === 0) {
-              candidates.push({
-                branch: branchName,
-                path: entryPath,
-                head: entry.head,
+            if (branchName && !entry.detached) {
+              const merged = await git(["merge-base", "--is-ancestor", branchName, baseRef], {
+                cwd: repoRoot,
+                allowFailure: true,
               });
+
+              mergedIntoBase = merged.exitCode === 0;
             }
+
+            const classified = classifyEntry(
+              entry,
+              repoRoot,
+              activeWorktree,
+              protectedBranches,
+              mergedIntoBase,
+            );
+
+            grouped[classified.status].push(classified);
           }
 
           const requestedMode = args.mode || config.cleanupMode;
           if (requestedMode !== "apply") {
-            return formatPreview(candidates, defaultBranch);
+            return formatPreview(grouped, defaultBranch);
+          }
+
+          const requestedSelectors = [...new Set(args.selectors || [])];
+          const selected = [];
+          const failed = [];
+
+          for (const selector of requestedSelectors) {
+            const match = [...grouped.safe, ...grouped.review, ...grouped.blocked].find((item) =>
+              selectorMatches(item, selector),
+            );
+
+            if (!match) {
+              failed.push({
+                selector,
+                reason: "selector did not match any connected worktree",
+              });
+              continue;
+            }
+
+            if (!match.selectable) {
+              failed.push({
+                ...match,
+                selector,
+                reason: `cannot remove via selector: ${match.reason}`,
+              });
+              continue;
+            }
+
+            selected.push(match);
+          }
+
+          const targets = [...grouped.safe];
+
+          for (const item of selected) {
+            if (!targets.some((target) => target.path === item.path)) {
+              targets.push({
+                ...item,
+                selected: true,
+              });
+            }
           }
 
           const removed = [];
-          const failed = [];
 
-          for (const candidate of candidates) {
+          for (const candidate of targets) {
             const removeWorktree = await git(["worktree", "remove", candidate.path], {
               cwd: repoRoot,
               allowFailure: true,
@@ -402,10 +551,13 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
               continue;
             }
 
-            const deleteBranch = await git(["branch", "-d", candidate.branch], {
-              cwd: repoRoot,
-              allowFailure: true,
-            });
+            const deleteBranch = await git(
+              ["branch", candidate.status === "safe" ? "-d" : "-D", candidate.branch],
+              {
+                cwd: repoRoot,
+                allowFailure: true,
+              },
+            );
 
             if (deleteBranch.exitCode !== 0) {
               failed.push({
@@ -423,7 +575,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             allowFailure: true,
           });
 
-          return formatCleanupSummary(defaultBranch, removed, failed);
+          return formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors);
         },
       }),
     },

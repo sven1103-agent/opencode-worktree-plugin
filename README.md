@@ -78,7 +78,7 @@ curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/
 ## What the plugin provides
 
 - `worktree_prepare`: create a worktree and matching branch from the latest default-branch commit
-- `worktree_cleanup`: preview or remove merged worktrees
+- `worktree_cleanup`: preview all connected worktrees, auto-clean safe ones, and optionally remove selected review items
 
 This package currently focuses on plugin distribution. Slash command packaging can be layered on later.
 
