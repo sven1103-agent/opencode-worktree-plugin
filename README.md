@@ -36,6 +36,7 @@ npm install @sven1103/opencode-worktree-workflow
 OpenCode loads custom commands from either `.opencode/commands/` (project) or `~/.config/opencode/commands/` (global).
 
 This repo publishes `wt-new.md` and `wt-clean.md` as GitHub Release assets so you can install them without browsing the repository.
+For a plain-language explanation of what each release contains, how it is produced, and how to verify it before installing, see `docs/releases.md`.
 
 Project install (latest release):
 
@@ -109,6 +110,8 @@ Supported settings:
 
 This repo is prepared for npm publishing from GitHub Actions using npm trusted publishing.
 
+If you consume releases instead of contributing to the repo, `docs/releases.md` is the end-user guide for understanding what the published npm package and GitHub Release assets include.
+
 Typical release flow:
 
 1. Publish the package once manually to create it on npm.
@@ -117,7 +120,7 @@ Typical release flow:
 
 The release workflow creates a `release/v<version>` branch from `main`, updates `package.json` and `package-lock.json`, commits the version bump there, creates a matching `v<version>` tag, and pushes the branch and tag.
 
-The release workflow then explicitly starts the publish workflow for that tag, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret. Merge the release branch back to `main` afterward if you want the version bump recorded on the default branch.
+The release workflow then explicitly starts the publish workflow for that tag, which verifies the tag matches `package.json`, runs `npm publish` using OIDC without storing an `NPM_TOKEN` secret, and creates or updates the GitHub Release with generated release notes plus the command assets. Merge the release branch back to `main` afterward if you want the version bump recorded on the default branch.
 
 ## Local development
 
