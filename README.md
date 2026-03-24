@@ -101,7 +101,7 @@ Typical release flow:
 
 The release workflow creates a `release/v<version>` branch from `main`, updates `package.json` and `package-lock.json`, commits the version bump there, creates a matching `v<version>` tag, and pushes the branch and tag.
 
-That tag then triggers the publish workflow, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret. Merge the release branch back to `main` afterward if you want the version bump recorded on the default branch.
+The release workflow then explicitly starts the publish workflow for that tag, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret. Merge the release branch back to `main` afterward if you want the version bump recorded on the default branch.
 
 ## Local development
 
