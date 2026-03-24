@@ -4,7 +4,19 @@
 
 ## Install in an OpenCode project
 
-Add the plugin package to your project config:
+Recommended project-local install with npm:
+
+```sh
+npm install @sven1103/opencode-worktree-workflow
+mkdir -p .opencode/plugins
+cat > .opencode/plugins/worktree-workflow.js <<'EOF'
+export { WorktreeWorkflowPlugin, default } from "@sven1103/opencode-worktree-workflow";
+EOF
+```
+
+This keeps the plugin wiring in `.opencode/plugins/`, which is less likely to be overwritten by shared `opencode.json` bundles.
+
+If you prefer config-managed installation, you can still add the package name to your OpenCode config:
 
 ```json
 {
@@ -12,8 +24,6 @@ Add the plugin package to your project config:
   "plugin": ["@sven1103/opencode-worktree-workflow"]
 }
 ```
-
-OpenCode installs npm plugins with Bun when it starts.
 
 ## Install slash commands
 
