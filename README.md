@@ -97,9 +97,11 @@ Typical release flow:
 
 1. Publish the package once manually to create it on npm.
 2. Configure the package's trusted publisher on npm for `.github/workflows/publish.yml`.
-3. Tag a release like `v0.1.0` and push the tag.
+3. Run the `Prepare Release` workflow from `main` with a version like `0.2.0`.
 
-The GitHub Actions workflow then runs `npm publish` using OIDC, without storing an `NPM_TOKEN` secret.
+The release workflow updates `package.json` and `package-lock.json`, commits the version bump, creates a matching `v<version>` tag, and pushes both.
+
+That tag then triggers the publish workflow, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret.
 
 ## Local development
 
