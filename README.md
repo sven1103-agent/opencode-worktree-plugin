@@ -1,0 +1,69 @@
+# OpenCode Worktree Workflow
+
+`@sven1103/opencode-worktree-workflow` is an OpenCode plugin that adds git worktree helpers for creating synced feature worktrees and cleaning up merged ones.
+
+## Install in an OpenCode project
+
+Add the plugin package to your project config:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@sven1103/opencode-worktree-workflow"]
+}
+```
+
+OpenCode installs npm plugins with Bun when it starts.
+
+## What the plugin provides
+
+- `worktree_prepare`: create a worktree and matching branch from the latest default-branch commit
+- `worktree_cleanup`: preview or remove merged worktrees
+
+This package currently focuses on plugin distribution. Slash command packaging can be layered on later.
+
+## Optional project configuration
+
+You can override the defaults in `opencode.json`, `opencode.jsonc`, or `.opencode/worktree-workflow.json`:
+
+```json
+{
+  "worktreeWorkflow": {
+    "branchPrefix": "wt/",
+    "remote": "origin",
+    "worktreeRoot": "../.worktrees/$REPO",
+    "cleanupMode": "preview",
+    "protectedBranches": ["release"]
+  }
+}
+```
+
+Supported settings:
+
+- `branchPrefix`: prefix for generated worktree branches
+- `remote`: remote used to detect the default branch and fetch updates
+- `worktreeRoot`: destination root for new worktrees; supports `$REPO`, `$ROOT`, and `$ROOT_PARENT`
+- `cleanupMode`: default cleanup behavior, either `preview` or `apply`
+- `protectedBranches`: branches that should never be auto-cleaned
+
+## Publish workflow
+
+This repo is prepared for npm publishing from GitHub Actions using npm trusted publishing.
+
+Typical release flow:
+
+1. Publish the package once manually to create it on npm.
+2. Configure the package's trusted publisher on npm for `.github/workflows/publish.yml`.
+3. Tag a release like `v0.1.0` and push the tag.
+
+The GitHub Actions workflow then runs `npm publish` using OIDC, without storing an `NPM_TOKEN` secret.
+
+## Local development
+
+The repo still contains a project-local `.opencode/` setup for development and testing:
+
+- `.opencode/plugins/worktree.js` re-exports the plugin from `src/index.js`
+- `.opencode/commands/` contains local slash command wrappers for manual testing
+- `.opencode/worktree-workflow.md` documents the local workflow
+
+The publishable npm artifact is limited to `src/` via the root `package.json` `files` field. Install dependencies at the repo root with `npm install` for local development.
