@@ -4,25 +4,31 @@
 
 ## Install in an OpenCode project
 
-Recommended project-local install with npm:
+Add the package as a project dependency, following the official docs style:
 
-```sh
-npm install @sven1103/opencode-worktree-workflow
-mkdir -p .opencode/plugins
-cat > .opencode/plugins/worktree-workflow.js <<'EOF'
-export { WorktreeWorkflowPlugin, default } from "@sven1103/opencode-worktree-workflow";
-EOF
+```json
+{
+  "dependencies": {
+    "@sven1103/opencode-worktree-workflow": "^0.2.0"
+  }
+}
 ```
 
-This keeps the plugin wiring in `.opencode/plugins/`, which is less likely to be overwritten by shared `opencode.json` bundles.
-
-If you prefer config-managed installation, you can still add the package name to your OpenCode config:
+Then reference the installed package from your OpenCode config:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["@sven1103/opencode-worktree-workflow"]
 }
+```
+
+Keeping the npm dependency in `package.json` makes the installation more durable even if shared `opencode.json` bundles overwrite plugin entries.
+
+If you do not already install dependencies in your project, you can add the package directly with npm:
+
+```sh
+npm install @sven1103/opencode-worktree-workflow
 ```
 
 ## Install slash commands
