@@ -1,6 +1,6 @@
 # Worktree workflow
 
-This local OpenCode workflow adds two slash commands:
+This local OpenCode workflow adds two slash commands for development and testing:
 
 - `/wt-new <descriptive title>` creates a new git worktree from the latest commit on the default branch.
 - `/wt-clean` previews merged worktrees that are safe to remove.
@@ -36,3 +36,11 @@ Supported settings:
 - `worktreeRoot`: where new worktrees are created; supports `$REPO`, `$ROOT`, and `$ROOT_PARENT`
 - `cleanupMode`: default cleanup mode, `preview` or `apply`
 - `protectedBranches`: branches that should never be auto-cleaned
+
+## Development note
+
+The publishable npm package lives at the repository root.
+
+- The actual plugin source is `src/index.js`.
+- `.opencode/plugins/worktree.js` is a local re-export shim for OpenCode project testing.
+- Install dependencies with `npm install` at the repository root.
