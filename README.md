@@ -99,9 +99,9 @@ Typical release flow:
 2. Configure the package's trusted publisher on npm for `.github/workflows/publish.yml`.
 3. Run the `Prepare Release` workflow from `main` with a version like `0.2.0`.
 
-The release workflow updates `package.json` and `package-lock.json`, commits the version bump, creates a matching `v<version>` tag, and pushes both.
+The release workflow creates a `release/v<version>` branch from `main`, updates `package.json` and `package-lock.json`, commits the version bump there, creates a matching `v<version>` tag, and pushes the branch and tag.
 
-That tag then triggers the publish workflow, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret.
+That tag then triggers the publish workflow, which verifies the tag matches `package.json` before running `npm publish` using OIDC, without storing an `NPM_TOKEN` secret. Merge the release branch back to `main` afterward if you want the version bump recorded on the default branch.
 
 ## Local development
 

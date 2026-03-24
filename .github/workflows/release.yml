@@ -14,6 +14,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_BRANCH: release/v${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,10 +38,18 @@ jobs:
 
       - name: Ensure tag does not already exist
         run: |
-          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Tag v${{ inputs.version }} already exists."
+          if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists."
             exit 1
           fi
+
+          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" >/dev/null 2>&1; then
+            echo "Release branch $RELEASE_BRANCH already exists."
+            exit 1
+          fi
+
+      - name: Create release branch
+        run: git switch -c "$RELEASE_BRANCH"
 
       - name: Update package version
         run: npm version "${{ inputs.version }}" --no-git-tag-version
@@ -53,12 +64,12 @@ jobs:
             git add package-lock.json
           fi
 
-          git commit -m "chore: release v${{ inputs.version }}"
+          git commit -m "chore: release $RELEASE_TAG"
 
       - name: Create release tag
-        run: git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+        run: git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
 
-      - name: Push commit and tag
+      - name: Push release branch and tag
         run: |
-          git push origin HEAD:${{ github.event.repository.default_branch }}
-          git push origin "v${{ inputs.version }}"
+          git push -u origin "$RELEASE_BRANCH"
+          git push origin "$RELEASE_TAG"
