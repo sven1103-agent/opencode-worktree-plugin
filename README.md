@@ -90,7 +90,7 @@ You can override the defaults in `opencode.json`, `opencode.jsonc`, or `.opencod
   "worktreeWorkflow": {
     "branchPrefix": "wt/",
     "remote": "origin",
-    "worktreeRoot": "../.worktrees/$REPO",
+    "worktreeRoot": ".worktrees/$REPO",
     "cleanupMode": "preview",
     "protectedBranches": ["release"]
   }

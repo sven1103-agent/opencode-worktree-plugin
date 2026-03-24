@@ -3,6 +3,7 @@
 This local OpenCode workflow adds two slash commands for development and testing:
 
 - `/wt-new <descriptive title>` creates a new git worktree from the latest commit on the default branch.
+- After `/wt-new`, use the returned worktree path as the active target for follow-up work by passing it as bash `workdir` and by using absolute file paths inside that worktree.
 - `/wt-clean` previews merged worktrees that are safe to remove.
 - `/wt-clean apply` removes the previewed worktrees and deletes their local branches.
 
