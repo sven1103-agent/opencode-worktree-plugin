@@ -88,6 +88,7 @@ The native tool results and CLI `--json` output now use a versioned structured c
 
 - current `schema_version`: `1.0.0`
 - contract overview: `docs/contract.md`
+- compatibility model: `docs/compatibility.md`
 - checked-in schemas for transparency:
   - `schemas/worktree-prepare.result.schema.json`
   - `schemas/worktree-cleanup-preview.result.schema.json`
@@ -113,6 +114,13 @@ Defaults:
 - human-readable output by default
 - structured output with `--json`
 - the CLI shares the same underlying implementation and result contract as the native tools
+
+## Compatibility model
+
+The repo keeps config loading, argument normalization, and execution semantics centralized in the package implementation so existing installations continue to work across native tools, CLI fallback, and slash commands.
+
+- compatibility overview: `docs/compatibility.md`
+- existing `.opencode/worktree-workflow.json` setups remain the supported configuration path
 
 ## Optional project configuration
 

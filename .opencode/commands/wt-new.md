@@ -6,9 +6,9 @@ Use the `worktree_prepare` tool.
 
 Requirements:
 - Use `$ARGUMENTS` as the descriptive title.
-- Fetch the latest commit from the configured base branch before creating anything, or from the repository default branch when no base branch is configured.
-- Create a new git worktree and a matching descriptive branch from the latest configured base-branch commit, or the default branch when no base branch is configured.
-- Return the branch name, worktree path, default branch, base branch, base ref, and base commit.
+- Call `worktree_prepare` directly with `title: "$ARGUMENTS"`.
+- Rely on the package implementation for config loading, base-branch resolution, and worktree creation semantics.
+- Return the tool result.
 - Treat the returned worktree path as the active execution target for follow-up work in this conversation.
 - For later shell commands, use that worktree path as the `workdir`.
 - For later file reads or edits, use absolute paths inside that worktree.
