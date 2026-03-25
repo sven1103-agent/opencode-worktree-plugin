@@ -1,6 +1,6 @@
 # Structured Result Contract
 
-The worktree workflow package now exposes a structured result contract for its native tools and CLI `--json` mode. Human-readable output remains available through the `message` field, but callers should treat the structured fields as the canonical interface.
+The worktree workflow package now exposes a structured result contract for CLI `--json` mode and for native-tool metadata. Native tools return human-readable text, while the same structured object is published in metadata for machine consumers. Callers should treat the structured fields as the canonical interface.
 
 ## Versioning
 

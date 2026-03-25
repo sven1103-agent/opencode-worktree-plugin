@@ -11,8 +11,8 @@ They share one core rule: package implementation is the source of truth for conf
 
 ## Current compatibility contract
 
-- Native tools are the canonical machine interface.
-- CLI `--json` output uses the same structured, versioned contract as the native tools.
+- Native tools return human-readable text and publish the structured result in metadata.
+- CLI `--json` output prints the same structured, versioned contract directly.
 - Slash commands are first-class human entry points, but they should stay thin and defer behavior to the package.
 - The co-shipped skill should target the documented contract, not package internals.
 

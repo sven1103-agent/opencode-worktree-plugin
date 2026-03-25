@@ -121,6 +121,15 @@ export async function run(argv = process.argv.slice(2)) {
   });
 
   let result;
+  let structuredResult = null;
+  const toolContext = {
+    metadata(input) {
+      if (input?.metadata?.result) {
+        structuredResult = input.metadata.result;
+      }
+    },
+    worktree: process.cwd(),
+  };
 
   if (command === "wt-new") {
     const title = rest.join(" ").trim();
@@ -129,26 +138,20 @@ export async function run(argv = process.argv.slice(2)) {
       throw new Error("wt-new requires a descriptive title.");
     }
 
-    result = await plugin.tool.worktree_prepare.execute(
-      { title },
-      { metadata() {}, worktree: process.cwd() },
-    );
+    result = await plugin.tool.worktree_prepare.execute({ title }, toolContext);
   } else if (command === "wt-clean") {
     const raw = rest.join(" ").trim();
-    result = await plugin.tool.worktree_cleanup.execute(
-      { raw, selectors: [] },
-      { metadata() {}, worktree: process.cwd() },
-    );
+    result = await plugin.tool.worktree_cleanup.execute({ raw, selectors: [] }, toolContext);
   } else {
     throw new Error(`Unknown command: ${command}`);
   }
 
   if (outputJson) {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(structuredResult ?? { ok: true, message: result }, null, 2)}\n`);
     return;
   }
 
-  process.stdout.write(`${result.message || JSON.stringify(result, null, 2)}\n`);
+  process.stdout.write(`${result}\n`);
 }
 
 export function isInvokedAsScript(argvPath = process.argv[1]) {

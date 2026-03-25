@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { __internal } from "../src/index.js";
-import { commitFile, createPlugin, createRemoteRepo, git, writeFile } from "../test-support/helpers.js";
+import { commitFile, createPlugin, createRemoteRepo, executeToolWithMetadata, git, writeFile } from "../test-support/helpers.js";
 import { assertMatchesSchema } from "../test-support/schema-assert.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,14 +19,16 @@ test("worktree_prepare output matches checked-in schema", async () => {
 
   try {
     const plugin = await createPlugin(fixture.repoPath);
-    const result = await plugin.tool.worktree_prepare.execute(
+    const { message, result } = await executeToolWithMetadata(
+      plugin.tool.worktree_prepare.execute,
       { title: "Schema prepare contract" },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     const schema = await readSchemaFile("worktree-prepare.result.schema.json");
     assertMatchesSchema(result, schema, "worktree_prepare");
     assert.equal(result.schema_version, __internal.RESULT_SCHEMA_VERSION);
+    assert.equal(message, result.message);
   } finally {
     await fixture.cleanup();
   }
@@ -37,14 +39,16 @@ test("worktree_cleanup preview output matches checked-in schema", async () => {
 
   try {
     const plugin = await createPlugin(fixture.repoPath);
-    const result = await plugin.tool.worktree_cleanup.execute(
+    const { message, result } = await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
       { raw: "preview", selectors: [] },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     const schema = await readSchemaFile("worktree-cleanup-preview.result.schema.json");
     assertMatchesSchema(result, schema, "worktree_cleanup.preview");
     assert.equal(result.schema_version, __internal.RESULT_SCHEMA_VERSION);
+    assert.equal(message, result.message);
   } finally {
     await fixture.cleanup();
   }
@@ -62,9 +66,10 @@ test("worktree_cleanup apply output matches checked-in schema during partial suc
     await writeFile(path.join(featureWorktree, "dirty.txt"), "modified but uncommitted\n");
 
     const plugin = await createPlugin(fixture.repoPath);
-    const result = await plugin.tool.worktree_cleanup.execute(
+    const { message, result } = await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
       { raw: "apply feature/dirty", selectors: [] },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     const schema = await readSchemaFile("worktree-cleanup-apply.result.schema.json");
@@ -72,6 +77,7 @@ test("worktree_cleanup apply output matches checked-in schema during partial suc
     assert.equal(result.failed.length, 1);
     assert.equal(result.removed.length, 0);
     assert.equal(result.failed[0].selector, "feature/dirty");
+    assert.equal(message, result.message);
   } finally {
     await fixture.cleanup();
   }

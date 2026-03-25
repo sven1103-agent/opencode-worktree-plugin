@@ -42,6 +42,11 @@ In practice:
 - if the native tools are unavailable, use the local CLI fallback from the same installed package
 - if the package is not installed, no CLI fallback is available
 
+Important distinction:
+
+- `worktree_prepare` and `worktree_cleanup` are native OpenCode tools, not shell commands
+- from a terminal, use `npx opencode-worktree-workflow ...` or `./node_modules/.bin/opencode-worktree-workflow ...`
+
 ## Install in an OpenCode project
 
 Add the package as a project dependency, following the official docs style:
@@ -145,9 +150,11 @@ If your setup uses installed skill files, copy the released `SKILL.md` into a `w
 
 This package now ships the plugin capability, a CLI fallback surface, thin slash commands, and a co-shipped policy skill.
 
+These native tools are exposed inside OpenCode after the plugin is loaded. They are not terminal commands.
+
 ## Structured contract
 
-The native tool results and CLI `--json` output now use a versioned structured contract with a `schema_version` field.
+The package now exposes a versioned structured contract with a `schema_version` field. Native tools return human-readable text and publish the structured result in tool metadata, while CLI `--json` prints the same structured object directly.
 
 - current `schema_version`: `1.0.0`
 - contract overview: `docs/contract.md`
@@ -163,13 +170,24 @@ Human-readable output remains available through the result `message`, but caller
 
 The npm package also exposes a local CLI so agents can fall back to the same installed package when the native plugin tools are unavailable.
 
+Use the CLI from a terminal when you want to run the workflow manually. Run it inside a real git repository. By default, the workflow expects a normal remote and base-branch setup such as `origin` plus the repository default branch, unless you override that in `.opencode/worktree-workflow.json`.
+
 Examples:
 
 ```sh
+npx opencode-worktree-workflow --help
+npx opencode-worktree-workflow wt-clean --help
 npx opencode-worktree-workflow wt-new "Improve checkout retry logic"
 npx opencode-worktree-workflow wt-new "Improve checkout retry logic" --json
 npx opencode-worktree-workflow wt-clean preview
 npx opencode-worktree-workflow wt-clean apply feature/foo --json
+```
+
+Direct local bin examples:
+
+```sh
+./node_modules/.bin/opencode-worktree-workflow --help
+./node_modules/.bin/opencode-worktree-workflow wt-clean preview
 ```
 
 Defaults:
@@ -178,6 +196,7 @@ Defaults:
 - structured output with `--json`
 - the CLI shares the same underlying implementation and result contract as the native tools
 - the CLI fallback depends on the package already being installed in the project
+- if you run it outside a git repo or without the expected remote context, the CLI returns an actionable error
 
 ## Compatibility model
 
