@@ -1,6 +1,6 @@
 {
   "name": "@sven1103/opencode-worktree-workflow",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "OpenCode plugin for creating and cleaning up git worktrees.",
   "type": "module",
   "main": "./src/index.js",
