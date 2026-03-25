@@ -85,6 +85,7 @@ async function createRemoteRepo() {
 
   await commitFile(repoPath, "tracked.txt", "main-1\n", "main init");
   await git(repoPath, ["push", "-u", "origin", "main"]);
+  await git(remotePath, ["symbolic-ref", "HEAD", "refs/heads/main"]);
 
   await git(repoPath, ["checkout", "-b", "release/v1"]);
   await commitFile(repoPath, "tracked.txt", "release-1\n", "release change");
