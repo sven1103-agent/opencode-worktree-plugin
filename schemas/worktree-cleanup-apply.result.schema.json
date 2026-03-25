@@ -65,7 +65,6 @@
   "$defs": {
     "baseCleanupItem": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "branch",
         "worktree_path",
@@ -101,36 +100,86 @@
       }
     },
     "removedItem": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/baseCleanupItem"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branch",
+        "worktree_path",
+        "head",
+        "status",
+        "reason",
+        "detached",
+        "selectable",
+        "selected"
+      ],
+      "properties": {
+        "branch": {
+          "type": ["string", "null"]
         },
-        {
-          "type": "object",
-          "required": ["selected"],
-          "properties": {
-            "selected": {
-              "type": "boolean"
-            }
-          }
+        "worktree_path": {
+          "type": ["string", "null"]
+        },
+        "head": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": ["string", "null"],
+          "enum": ["safe", "review", "blocked", null]
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "detached": {
+          "type": "boolean"
+        },
+        "selectable": {
+          "type": ["boolean", "null"]
+        },
+        "selected": {
+          "type": "boolean"
         }
-      ]
+      }
     },
     "failedItem": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/baseCleanupItem"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "branch",
+        "worktree_path",
+        "head",
+        "status",
+        "reason",
+        "detached",
+        "selectable"
+      ],
+      "properties": {
+        "selector": {
+          "type": ["string", "null"]
         },
-        {
-          "type": "object",
-          "required": ["selector"],
-          "properties": {
-            "selector": {
-              "type": ["string", "null"]
-            }
-          }
+        "branch": {
+          "type": ["string", "null"]
+        },
+        "worktree_path": {
+          "type": ["string", "null"]
+        },
+        "head": {
+          "type": ["string", "null"]
+        },
+        "status": {
+          "type": ["string", "null"],
+          "enum": ["safe", "review", "blocked", null]
+        },
+        "reason": {
+          "type": ["string", "null"]
+        },
+        "detached": {
+          "type": "boolean"
+        },
+        "selectable": {
+          "type": ["boolean", "null"]
         }
-      ]
+      }
     }
   }
 }
