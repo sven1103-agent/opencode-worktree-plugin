@@ -2,6 +2,16 @@
 
 `@sven1103/opencode-worktree-workflow` is an npm package that provides OpenCode git worktree helpers for creating synced feature worktrees and cleaning up merged ones.
 
+## Quick start
+
+To get the workflow running in a project:
+
+1. Install the package once by following [Recommended setup](#recommended-setup).
+2. Enable the plugin in your OpenCode config as shown in [Recommended setup](#recommended-setup).
+3. If you want manual `/wt-new` and `/wt-clean` triggers, install the markdown files from [Install slash commands](#install-slash-commands).
+4. If you want policy guidance for when to isolate work, install the skill from [Co-shipped skill](#co-shipped-skill).
+5. If you need to understand how the local fallback works, see [CLI fallback](#cli-fallback).
+
 ## Recommended setup
 
 Install the package once:
