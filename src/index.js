@@ -7,6 +7,7 @@ import { tool } from "@opencode-ai/plugin";
 const DEFAULTS = {
   branchPrefix: "wt/",
   remote: "origin",
+  baseBranch: null,
   worktreeRoot: ".worktrees/$REPO",
   cleanupMode: "preview",
   protectedBranches: [],
@@ -193,6 +194,91 @@ function formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors
   return lines.join("\n");
 }
 
+function splitCleanupToken(value) {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function parseCleanupRawArguments(raw) {
+  const tokens = splitCleanupToken(raw);
+
+  if (tokens[0] === "apply") {
+    return {
+      mode: "apply",
+      selectors: tokens.slice(1),
+    };
+  }
+
+  if (tokens[0] === "preview") {
+    return {
+      mode: "preview",
+      selectors: tokens.slice(1),
+    };
+  }
+
+  return {
+    mode: null,
+    selectors: tokens,
+  };
+}
+
+function normalizeCleanupArgs(args, config) {
+  const selectors = Array.isArray(args.selectors) ? [...args.selectors] : [];
+  const normalizedSelectors = [];
+  const rawArgs = parseCleanupRawArguments(args.raw);
+  let explicitMode = rawArgs.mode;
+
+  if (rawArgs.selectors.length > 0) {
+    selectors.unshift(...rawArgs.selectors);
+  }
+
+  if (typeof args.mode === "string" && args.mode.trim()) {
+    const modeValue = args.mode.trim();
+    if (modeValue === "apply" || modeValue === "preview") {
+      explicitMode = modeValue;
+    } else {
+      selectors.unshift(...splitCleanupToken(modeValue));
+    }
+  }
+
+  for (const selector of selectors) {
+    if (typeof selector !== "string") {
+      continue;
+    }
+
+    if (selector.includes(" ")) {
+      normalizedSelectors.push(...splitCleanupToken(selector));
+      continue;
+    }
+
+    normalizedSelectors.push(selector);
+  }
+
+  const inlineApply = normalizedSelectors[0] === "apply";
+
+  if (inlineApply) {
+    normalizedSelectors.shift();
+  }
+
+  const mode = explicitMode === "apply" || inlineApply ? "apply" : explicitMode || config.cleanupMode;
+
+  return {
+    mode,
+    selectors: normalizedSelectors,
+  };
+}
+
+export const __internal = {
+  parseCleanupRawArguments,
+  normalizeCleanupArgs,
+};
+
 function selectorMatches(item, selector) {
   const normalized = path.resolve(selector);
   return item.branch === selector || item.path === normalized;
@@ -248,7 +334,7 @@ function classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, merge
     return {
       ...item,
       status: "safe",
-      reason: "merged into default branch by git ancestry",
+      reason: "merged into base branch by git ancestry",
       selectable: true,
     };
   }
@@ -256,7 +342,7 @@ function classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, merge
   return {
     ...item,
     status: "review",
-    reason: "not merged into default branch by git ancestry",
+    reason: "not merged into base branch by git ancestry",
     selectable: true,
   };
 }
@@ -302,6 +388,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     return {
       branchPrefix: normalizeBranchPrefix(merged.branchPrefix ?? DEFAULTS.branchPrefix),
       remote: merged.remote || DEFAULTS.remote,
+      baseBranch: typeof merged.baseBranch === "string" && merged.baseBranch.trim() ? merged.baseBranch.trim() : null,
       cleanupMode: merged.cleanupMode === "apply" ? "apply" : DEFAULTS.cleanupMode,
       protectedBranches: Array.isArray(merged.protectedBranches)
         ? merged.protectedBranches.filter((value) => typeof value === "string")
@@ -362,16 +449,20 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     throw new Error("Could not determine the default branch for this repository.");
   }
 
-  async function getBaseRef(repoRoot, remote, defaultBranch) {
-    await git(["fetch", "--prune", remote, defaultBranch], { cwd: repoRoot });
+  async function resolveBaseBranch(repoRoot, remote, configuredBaseBranch) {
+    return configuredBaseBranch || getDefaultBranch(repoRoot, remote);
+  }
 
-    const remoteRef = `refs/remotes/${remote}/${defaultBranch}`;
+  async function getBaseRef(repoRoot, remote, baseBranch) {
+    await git(["fetch", "--prune", remote, baseBranch], { cwd: repoRoot });
+
+    const remoteRef = `refs/remotes/${remote}/${baseBranch}`;
     const remoteExists = await git(["show-ref", "--verify", "--quiet", remoteRef], {
       cwd: repoRoot,
       allowFailure: true,
     });
 
-    return remoteExists.exitCode === 0 ? `${remote}/${defaultBranch}` : defaultBranch;
+    return remoteExists.exitCode === 0 ? `${remote}/${baseBranch}` : baseBranch;
   }
 
   async function ensureBranchDoesNotExist(repoRoot, branchName) {
@@ -398,7 +489,8 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
           const repoRoot = await getRepoRoot();
           const config = await loadWorkflowConfig(repoRoot);
           const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
-          const baseRef = await getBaseRef(repoRoot, config.remote, defaultBranch);
+          const baseBranch = await resolveBaseBranch(repoRoot, config.remote, config.baseBranch);
+          const baseRef = await getBaseRef(repoRoot, config.remote, baseBranch);
           const baseCommit = (await git(["rev-parse", baseRef], { cwd: repoRoot })).stdout;
           const slug = slugifyTitle(args.title);
 
@@ -423,7 +515,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
           const branchCommit = (await git(["rev-parse", branchName], { cwd: repoRoot })).stdout;
           if (branchCommit !== baseCommit) {
             throw new Error(
-              `New branch ${branchName} does not match ${defaultBranch} at ${baseCommit}. Found ${branchCommit} instead.`,
+              `New branch ${branchName} does not match ${baseBranch} at ${baseCommit}. Found ${branchCommit} instead.`,
             );
           }
 
@@ -432,6 +524,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             `- branch: ${branchName}`,
             `- worktree: ${worktreePath}`,
             `- default branch: ${defaultBranch}`,
+            `- base branch: ${baseBranch}`,
             `- base ref: ${baseRef}`,
             `- base commit: ${baseCommit}`,
           ].join("\n");
@@ -440,26 +533,27 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       worktree_cleanup: tool({
         description: "Preview or clean git worktrees",
         args: {
-          mode: tool.schema
-            .enum(["preview", "apply"])
-            .default("preview")
-            .describe("Preview cleanup candidates or remove them"),
+          mode: tool.schema.string().optional().describe("Preview cleanup candidates or remove them"),
+          raw: tool.schema.string().optional().describe("Raw cleanup arguments from slash commands"),
           selectors: tool.schema
             .array(tool.schema.string())
             .default([])
             .describe("Optional branch names or worktree paths to remove explicitly"),
         },
         async execute(args, context) {
-          context.metadata({ title: `Clean worktrees (${args.mode})` });
-
           const repoRoot = await getRepoRoot();
           const config = await loadWorkflowConfig(repoRoot);
+          const normalizedArgs = normalizeCleanupArgs(args, config);
+
+          context.metadata({ title: `Clean worktrees (${normalizedArgs.mode})` });
+
           const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
-          const baseRef = await getBaseRef(repoRoot, config.remote, defaultBranch);
+          const baseBranch = await resolveBaseBranch(repoRoot, config.remote, config.baseBranch);
+          const baseRef = await getBaseRef(repoRoot, config.remote, baseBranch);
           const activeWorktree = path.resolve(context.worktree || repoRoot);
           const worktreeList = await git(["worktree", "list", "--porcelain"], { cwd: repoRoot });
           const entries = parseWorktreeList(worktreeList.stdout);
-          const protectedBranches = new Set([defaultBranch, ...config.protectedBranches]);
+          const protectedBranches = new Set([defaultBranch, baseBranch, ...config.protectedBranches]);
           const grouped = {
             safe: [],
             review: [],
@@ -490,12 +584,11 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             grouped[classified.status].push(classified);
           }
 
-          const requestedMode = args.mode || config.cleanupMode;
-          if (requestedMode !== "apply") {
-            return formatPreview(grouped, defaultBranch);
+          if (normalizedArgs.mode !== "apply") {
+            return formatPreview(grouped, baseBranch);
           }
 
-          const requestedSelectors = [...new Set(args.selectors || [])];
+          const requestedSelectors = [...new Set(normalizedArgs.selectors || [])];
           const selected = [];
           const failed = [];
 
@@ -575,7 +668,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             allowFailure: true,
           });
 
-          return formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors);
+          return formatCleanupSummary(baseBranch, removed, failed, requestedSelectors);
         },
       }),
     },
