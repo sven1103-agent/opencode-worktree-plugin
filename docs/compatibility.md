@@ -16,6 +16,14 @@ They share one core rule: package implementation is the source of truth for conf
 - Slash commands are first-class human entry points, but they should stay thin and defer behavior to the package.
 - The co-shipped skill should target the documented contract, not package internals.
 
+## Co-shipped skill contract
+
+- The skill is packaged in `skills/worktree-workflow/SKILL.md`.
+- The skill should remain policy-only: when to isolate work, when repo root is acceptable, and when to prefer preview-first cleanup.
+- The skill must not encode orchestration storage details such as session folders or workspace registries.
+- The skill must not duplicate package config parsing or argument normalization logic.
+- The skill can later move to a separate repo without changing its behavioral contract.
+
 ## Configuration compatibility
 
 Existing installations must keep working.

@@ -65,17 +65,19 @@ jobs:
 
           - npm package: \`@sven1103/opencode-worktree-workflow@${VERSION}\`
           - slash command assets: \`wt-new.md\`, \`wt-clean.md\`
+          - skill asset: \`SKILL.md\`
           - transparency guide: \`docs/releases.md\`
 
           ## Install
 
           - npm: \`npm install @sven1103/opencode-worktree-workflow\`
           - commands: download the attached \`wt-new.md\` and \`wt-clean.md\` files into your OpenCode commands directory
+          - skill: download the attached \`SKILL.md\` file into a \`worktree-workflow/\` skill folder in the location used by your environment
 
           ## Verification
 
           - compare this release tag with \`package.json\`
-          - inspect the attached command files before installing them
+          - inspect the attached markdown files before installing them
           - see \`docs/releases.md\` for the full release and verification guide
           EOF
 
@@ -88,3 +90,4 @@ jobs:
           files: |
             commands/wt-new.md
             commands/wt-clean.md
+            skills/worktree-workflow/SKILL.md

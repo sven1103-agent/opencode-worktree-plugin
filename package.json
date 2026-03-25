@@ -12,7 +12,8 @@
   },
   "files": [
     "src",
-    "schemas"
+    "schemas",
+    "skills"
   ],
   "keywords": [
     "opencode",
