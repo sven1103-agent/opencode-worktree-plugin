@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { __internal } from "../src/index.js";
-import { parseCliArgs } from "../src/cli.js";
+import { isInvokedAsScript, parseCliArgs } from "../src/cli.js";
 import { createPlugin, createRemoteRepo, execFileAsync } from "../test-support/helpers.js";
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
@@ -70,6 +71,22 @@ test("CLI parseCliArgs strips --json and preserves command arguments", () => {
   });
 });
 
+test("CLI entrypoint detection resolves symlinked bin paths", async () => {
+  const dir = await fs.mkdtemp(path.join(path.dirname(cliPath), "cli-bin-test-"));
+
+  try {
+    const symlinkPath = path.join(dir, "opencode-worktree-workflow");
+    await fs.symlink(cliPath, symlinkPath);
+
+    assert.equal(isInvokedAsScript(cliPath), true);
+    assert.equal(isInvokedAsScript(symlinkPath), true);
+    assert.equal(isInvokedAsScript(path.join(dir, "missing-bin")), false);
+    assert.equal(isInvokedAsScript(undefined), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI preview JSON stays compatible with the native plugin contract", async () => {
   const fixture = await createRemoteRepo();
 
@@ -112,6 +129,52 @@ test("CLI --help prints usage", async () => {
     assert.match(result.stdout, /Usage:/);
     assert.match(result.stdout, /wt-new <title>/);
     assert.match(result.stdout, /wt-clean \[preview\|apply\]/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI wt-clean --help prints subcommand usage", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    const result = await execFileAsync("node", [cliPath, "wt-clean", "--help"], {
+      cwd: fixture.repoPath,
+    });
+
+    assert.match(result.stdout, /wt-clean \[preview\|apply\]/);
+    assert.match(result.stdout, /Preview connected worktrees/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI surfaces an actionable error outside a git repository", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    const outsideRepo = path.join(fixture.tempRoot, "outside-repo");
+    await fs.mkdir(outsideRepo, { recursive: true });
+
+    await assert.rejects(
+      execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: outsideRepo }),
+      /must run inside a git repository/i,
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI surfaces an actionable error when the configured remote is missing", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    await execFileAsync("git", ["remote", "remove", "origin"], { cwd: fixture.repoPath });
+
+    await assert.rejects(
+      execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: fixture.repoPath }),
+      /Could not fetch base branch information from remote "origin"/i,
+    );
   } finally {
     await fixture.cleanup();
   }
