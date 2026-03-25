@@ -114,6 +114,18 @@ This repo also co-ships a `worktree-workflow` skill as a policy layer over the p
 
 The skill teaches when to use task-scoped worktrees, when repo root is still acceptable, and how to prefer the native tool path before falling back to the packaged CLI.
 
+Project-local install (latest release):
+
+```sh
+mkdir -p .opencode/skills/worktree-workflow
+curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/SKILL.md" -o ".opencode/skills/worktree-workflow/SKILL.md"
+```
+
+```sh
+mkdir -p .opencode/skills/worktree-workflow
+wget -qO ".opencode/skills/worktree-workflow/SKILL.md" "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/latest/download/SKILL.md"
+```
+
 If your setup uses installed skill files, copy the released `SKILL.md` into a `worktree-workflow/` skill folder in the appropriate location for that environment, or consume the checked-in file from this repo directly.
 
 ## What the plugin provides
