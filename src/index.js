@@ -225,6 +225,7 @@ function toStructuredCleanupFailure(item) {
     selector: item.selector ?? null,
     branch: item.branch ?? null,
     worktree_path: item.path ?? item.worktree_path ?? null,
+    head: item.head ?? null,
     status: item.status ?? null,
     reason: item.reason ?? null,
     detached: Boolean(item.detached),
@@ -374,6 +375,7 @@ export const __internal = {
   buildCleanupApplyResult,
   buildCleanupPreviewResult,
   buildPrepareResult,
+  classifyEntry,
   parseCleanupRawArguments,
   normalizeCleanupArgs,
   toStructuredCleanupFailure,
@@ -728,7 +730,10 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
               continue;
             }
 
-            selected.push(match);
+            selected.push({
+              ...match,
+              selector,
+            });
           }
 
           const targets = [...grouped.safe];
@@ -737,6 +742,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             if (!targets.some((target) => target.path === item.path)) {
               targets.push({
                 ...item,
+                selector: item.selector ?? null,
                 selected: true,
               });
             }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { WorktreeWorkflowPlugin } from "./index.js";
@@ -67,14 +68,14 @@ function printUsage() {
   );
 }
 
-function parseCliArgs(argv) {
+export function parseCliArgs(argv) {
   const outputJson = argv.includes("--json");
   const args = argv.filter((arg) => arg !== "--json");
   return { outputJson, args };
 }
 
-async function run() {
-  const { outputJson, args } = parseCliArgs(process.argv.slice(2));
+export async function run(argv = process.argv.slice(2)) {
+  const { outputJson, args } = parseCliArgs(argv);
   const [command, ...rest] = args;
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
@@ -119,7 +120,11 @@ async function run() {
   process.stdout.write(`${result.message || JSON.stringify(result, null, 2)}\n`);
 }
 
-run().catch((error) => {
-  process.stderr.write(`${error.message || String(error)}\n`);
-  process.exitCode = 1;
-});
+const invokedAsScript = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (invokedAsScript) {
+  run().catch((error) => {
+    process.stderr.write(`${error.message || String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
