@@ -77,8 +77,8 @@ curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/
 
 ## What the plugin provides
 
-- `worktree_prepare`: create a worktree and matching branch from the latest default-branch commit
-- `worktree_cleanup`: preview all connected worktrees, auto-clean safe ones, and optionally remove selected review items
+- `worktree_prepare`: create a worktree and matching branch from the latest configured base-branch commit, or the default branch when no base branch is configured
+- `worktree_cleanup`: preview all connected worktrees against the configured base branch, auto-clean safe ones, and optionally remove selected review items
 
 This package currently focuses on plugin distribution. Slash command packaging can be layered on later.
 
@@ -92,6 +92,7 @@ To override this plugin's defaults, put a sidecar config file at `.opencode/work
 {
   "branchPrefix": "wt/",
   "remote": "origin",
+  "baseBranch": "release/v0.4.0",
   "worktreeRoot": ".worktrees/$REPO",
   "cleanupMode": "preview",
   "protectedBranches": ["release"]
@@ -111,6 +112,7 @@ Supported settings:
 
 - `branchPrefix`: prefix for generated worktree branches
 - `remote`: remote used to detect the default branch and fetch updates
+- `baseBranch`: optional branch name used as the creation and cleanup base; defaults to the remote's default branch
 - `worktreeRoot`: destination root for new worktrees; supports `$REPO`, `$ROOT`, and `$ROOT_PARENT`
 - `cleanupMode`: default cleanup behavior, either `preview` or `apply`
 - `protectedBranches`: branches that should never be auto-cleaned

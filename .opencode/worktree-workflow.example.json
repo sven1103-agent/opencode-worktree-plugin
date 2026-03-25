@@ -1,0 +1,8 @@
+{
+  "branchPrefix": "wt/",
+  "remote": "origin",
+  "baseBranch": "release/v0.4.0",
+  "worktreeRoot": ".worktrees/$REPO",
+  "cleanupMode": "preview",
+  "protectedBranches": ["main", "release/v0.4.0"]
+}
