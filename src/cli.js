@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -150,7 +151,19 @@ export async function run(argv = process.argv.slice(2)) {
   process.stdout.write(`${result.message || JSON.stringify(result, null, 2)}\n`);
 }
 
-const invokedAsScript = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+export function isInvokedAsScript(argvPath = process.argv[1]) {
+  if (!argvPath) {
+    return false;
+  }
+
+  try {
+    return fs.realpathSync(argvPath) === fileURLToPath(import.meta.url);
+  } catch {
+    return fileURLToPath(import.meta.url) === argvPath;
+  }
+}
+
+const invokedAsScript = isInvokedAsScript();
 
 if (invokedAsScript) {
   run().catch((error) => {

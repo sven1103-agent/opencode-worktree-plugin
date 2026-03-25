@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { __internal } from "../src/index.js";
-import { parseCliArgs } from "../src/cli.js";
+import { isInvokedAsScript, parseCliArgs } from "../src/cli.js";
 import { createPlugin, createRemoteRepo, execFileAsync } from "../test-support/helpers.js";
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
@@ -69,6 +69,22 @@ test("CLI parseCliArgs strips --json and preserves command arguments", () => {
     outputJson: true,
     args: ["wt-clean", "apply", "feature/foo"],
   });
+});
+
+test("CLI entrypoint detection resolves symlinked bin paths", async () => {
+  const dir = await fs.mkdtemp(path.join(path.dirname(cliPath), "cli-bin-test-"));
+
+  try {
+    const symlinkPath = path.join(dir, "opencode-worktree-workflow");
+    await fs.symlink(cliPath, symlinkPath);
+
+    assert.equal(isInvokedAsScript(cliPath), true);
+    assert.equal(isInvokedAsScript(symlinkPath), true);
+    assert.equal(isInvokedAsScript(path.join(dir, "missing-bin")), false);
+    assert.equal(isInvokedAsScript(undefined), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("CLI preview JSON stays compatible with the native plugin contract", async () => {
