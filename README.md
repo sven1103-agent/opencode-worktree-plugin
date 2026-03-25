@@ -84,7 +84,7 @@ This package currently focuses on plugin distribution. Slash command packaging c
 
 ## Structured contract
 
-The native tool results now use a versioned structured contract with a `schema_version` field.
+The native tool results and CLI `--json` output now use a versioned structured contract with a `schema_version` field.
 
 - current `schema_version`: `1.0.0`
 - contract overview: `docs/contract.md`
@@ -94,6 +94,25 @@ The native tool results now use a versioned structured contract with a `schema_v
   - `schemas/worktree-cleanup-apply.result.schema.json`
 
 Human-readable output remains available through the result `message`, but callers should depend on the structured fields rather than parsing prose.
+
+## CLI fallback
+
+The npm package also exposes a CLI so agents can fall back to `bunx` when the native plugin/tools are not installed.
+
+Examples:
+
+```sh
+bunx @sven1103/opencode-worktree-workflow wt-new "Improve checkout retry logic"
+bunx @sven1103/opencode-worktree-workflow wt-new "Improve checkout retry logic" --json
+bunx @sven1103/opencode-worktree-workflow wt-clean preview
+bunx @sven1103/opencode-worktree-workflow wt-clean apply feature/foo --json
+```
+
+Defaults:
+
+- human-readable output by default
+- structured output with `--json`
+- the CLI shares the same underlying implementation and result contract as the native tools
 
 ## Optional project configuration
 
