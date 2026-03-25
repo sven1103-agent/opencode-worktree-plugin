@@ -465,6 +465,18 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     return remoteExists.exitCode === 0 ? `${remote}/${baseBranch}` : baseBranch;
   }
 
+  async function resolveBaseTarget(repoRoot, config) {
+    const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
+    const baseBranch = await resolveBaseBranch(repoRoot, config.remote, config.baseBranch);
+    const baseRef = await getBaseRef(repoRoot, config.remote, baseBranch);
+
+    return {
+      defaultBranch,
+      baseBranch,
+      baseRef,
+    };
+  }
+
   async function ensureBranchDoesNotExist(repoRoot, branchName) {
     const exists = await git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
       cwd: repoRoot,
@@ -488,9 +500,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
 
           const repoRoot = await getRepoRoot();
           const config = await loadWorkflowConfig(repoRoot);
-          const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
-          const baseBranch = await resolveBaseBranch(repoRoot, config.remote, config.baseBranch);
-          const baseRef = await getBaseRef(repoRoot, config.remote, baseBranch);
+          const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
           const baseCommit = (await git(["rev-parse", baseRef], { cwd: repoRoot })).stdout;
           const slug = slugifyTitle(args.title);
 
@@ -547,9 +557,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
 
           context.metadata({ title: `Clean worktrees (${normalizedArgs.mode})` });
 
-          const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
-          const baseBranch = await resolveBaseBranch(repoRoot, config.remote, config.baseBranch);
-          const baseRef = await getBaseRef(repoRoot, config.remote, baseBranch);
+          const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
           const activeWorktree = path.resolve(context.worktree || repoRoot);
           const worktreeList = await git(["worktree", "list", "--porcelain"], { cwd: repoRoot });
           const entries = parseWorktreeList(worktreeList.stdout);
