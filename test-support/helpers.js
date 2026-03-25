@@ -114,4 +114,18 @@ async function createPlugin(repoPath) {
   });
 }
 
-export { commitFile, createPlugin, createRemoteRepo, execFileAsync, git, writeFile };
+async function executeToolWithMetadata(execute, args, worktree) {
+  let title = null;
+  let result = null;
+  const message = await execute(args, {
+    metadata(input) {
+      title = input?.title ?? title;
+      result = input?.metadata?.result ?? result;
+    },
+    worktree,
+  });
+
+  return { title, message, result };
+}
+
+export { commitFile, createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, git, writeFile };

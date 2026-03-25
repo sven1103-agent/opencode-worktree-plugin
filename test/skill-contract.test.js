@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createPlugin, createRemoteRepo, execFileAsync } from "../test-support/helpers.js";
+import { createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata } from "../test-support/helpers.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliPath = path.join(repoRoot, "src", "cli.js");
@@ -73,13 +73,15 @@ test("skill -> native plugin path has a happy-path integration", async () => {
     assert.equal(plan.action, "use-native-tool");
 
     const plugin = await createPlugin(fixture.repoPath);
-    const result = await plugin.tool.worktree_prepare.execute(
+    const { message, result } = await executeToolWithMetadata(
+      plugin.tool.worktree_prepare.execute,
       { title: "Native path integration" },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     assert.equal(result.ok, true);
     assert.equal(result.title, "Native path integration");
+    assert.equal(message, result.message);
   } finally {
     await fixture.cleanup();
   }

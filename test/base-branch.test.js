@@ -4,16 +4,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { __internal } from "../src/index.js";
-import { commitFile, createPlugin, createRemoteRepo, git, writeFile } from "../test-support/helpers.js";
+import { commitFile, createPlugin, createRemoteRepo, executeToolWithMetadata, git, writeFile } from "../test-support/helpers.js";
 
 test("worktree_prepare checks out from configured baseBranch instead of the default branch", async () => {
   const fixture = await createRemoteRepo();
 
   try {
     const plugin = await createPlugin(fixture.repoPath);
-    const output = await plugin.tool.worktree_prepare.execute(
+    const { message, result: output } = await executeToolWithMetadata(
+      plugin.tool.worktree_prepare.execute,
       { title: "Prepare from release" },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     assert.equal(output.ok, true);
@@ -22,9 +23,10 @@ test("worktree_prepare checks out from configured baseBranch instead of the defa
     assert.equal(output.default_branch, "main");
     assert.equal(output.base_branch, "release/v1");
     assert.equal(output.base_ref, "origin/release/v1");
-    assert.match(output.message, /- default branch: main/);
-    assert.match(output.message, /- base branch: release\/v1/);
-    assert.match(output.message, /- base ref: origin\/release\/v1/);
+    assert.equal(message, output.message);
+    assert.match(message, /- default branch: main/);
+    assert.match(message, /- base branch: release\/v1/);
+    assert.match(message, /- base ref: origin\/release\/v1/);
 
     const branchCommit = await git(fixture.repoPath, ["rev-parse", output.branch]);
     const releaseCommit = await git(fixture.repoPath, ["rev-parse", "origin/release/v1"]);
@@ -50,9 +52,10 @@ test("worktree_cleanup previews merge state relative to configured baseBranch", 
     await git(fixture.repoPath, ["worktree", "add", path.join(fixture.tempRoot, "feature-worktree"), "feature/merged"]);
 
     const plugin = await createPlugin(fixture.repoPath);
-    const output = await plugin.tool.worktree_cleanup.execute(
+    const { message, result: output } = await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
       { raw: "preview", selectors: [] },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     assert.equal(output.ok, true);
@@ -60,9 +63,10 @@ test("worktree_cleanup previews merge state relative to configured baseBranch", 
     assert.equal(output.mode, "preview");
     assert.equal(output.default_branch, "main");
     assert.equal(output.base_branch, "release/v1");
-    assert.match(output.message, /Worktrees connected to this repository against release\/v1:/);
-    assert.match(output.message, /feature\/merged/);
-    assert.match(output.message, /not merged into base branch by git ancestry/);
+    assert.equal(message, output.message);
+    assert.match(message, /Worktrees connected to this repository against release\/v1:/);
+    assert.match(message, /feature\/merged/);
+    assert.match(message, /not merged into base branch by git ancestry/);
 
     assert.equal(output.groups.safe.length, 0);
     assert.equal(output.groups.review.length, 1);
@@ -86,9 +90,10 @@ test("worktree_cleanup apply returns structured partial success details", async 
     await writeFile(path.join(featureWorktree, "dirty.txt"), "modified but uncommitted\n");
 
     const plugin = await createPlugin(fixture.repoPath);
-    const output = await plugin.tool.worktree_cleanup.execute(
+    const { message, result: output } = await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
       { raw: "apply feature/dirty", selectors: [] },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     assert.equal(output.ok, true);
@@ -100,7 +105,8 @@ test("worktree_cleanup apply returns structured partial success details", async 
     assert.equal(output.failed[0].branch, "feature/dirty");
     assert.equal(output.failed[0].status, "review");
     assert.match(output.failed[0].reason, /dirty|changes|modified/i);
-    assert.match(output.message, /Cleanup skipped for:/);
+    assert.equal(message, output.message);
+    assert.match(message, /Cleanup skipped for:/);
   } finally {
     await fixture.cleanup();
   }

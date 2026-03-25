@@ -154,7 +154,7 @@ These native tools are exposed inside OpenCode after the plugin is loaded. They 
 
 ## Structured contract
 
-The native tool results and CLI `--json` output now use a versioned structured contract with a `schema_version` field.
+The package now exposes a versioned structured contract with a `schema_version` field. Native tools return human-readable text and publish the structured result in tool metadata, while CLI `--json` prints the same structured object directly.
 
 - current `schema_version`: `1.0.0`
 - contract overview: `docs/contract.md`

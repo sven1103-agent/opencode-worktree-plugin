@@ -261,6 +261,16 @@ function buildPrepareResult({ title, branch, worktreePath, defaultBranch, baseBr
   };
 }
 
+function publishStructuredResult(context, result) {
+  context.metadata({
+    metadata: {
+      result,
+    },
+  });
+
+  return result.message || JSON.stringify(result, null, 2);
+}
+
 function buildCleanupPreviewResult({ defaultBranch, baseBranch, baseRef, grouped }) {
   const structuredGroups = {
     safe: grouped.safe.map(toStructuredCleanupItem),
@@ -662,15 +672,18 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             );
           }
 
-          return buildPrepareResult({
-            title: args.title,
-            branch: branchName,
-            worktreePath,
-            defaultBranch,
-            baseBranch,
-            baseRef,
-            baseCommit,
-          });
+          return publishStructuredResult(
+            context,
+            buildPrepareResult({
+              title: args.title,
+              branch: branchName,
+              worktreePath,
+              defaultBranch,
+              baseBranch,
+              baseRef,
+              baseCommit,
+            }),
+          );
         },
       }),
       worktree_cleanup: tool({
@@ -726,12 +739,15 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
           }
 
           if (normalizedArgs.mode !== "apply") {
-            return buildCleanupPreviewResult({
-              defaultBranch,
-              baseBranch,
-              baseRef,
-              grouped,
-            });
+            return publishStructuredResult(
+              context,
+              buildCleanupPreviewResult({
+                defaultBranch,
+                baseBranch,
+                baseRef,
+                grouped,
+              }),
+            );
           }
 
           const requestedSelectors = [...new Set(normalizedArgs.selectors || [])];
@@ -818,14 +834,17 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             allowFailure: true,
           });
 
-          return buildCleanupApplyResult({
-            defaultBranch,
-            baseBranch,
-            baseRef,
-            removed,
-            failed,
-            requestedSelectors,
-          });
+          return publishStructuredResult(
+            context,
+            buildCleanupApplyResult({
+              defaultBranch,
+              baseBranch,
+              baseRef,
+              removed,
+              failed,
+              requestedSelectors,
+            }),
+          );
         },
       }),
     },

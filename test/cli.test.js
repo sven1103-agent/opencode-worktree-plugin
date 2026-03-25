@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { __internal } from "../src/index.js";
 import { isInvokedAsScript, parseCliArgs } from "../src/cli.js";
-import { createPlugin, createRemoteRepo, execFileAsync } from "../test-support/helpers.js";
+import { createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata } from "../test-support/helpers.js";
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
 
@@ -92,9 +92,10 @@ test("CLI preview JSON stays compatible with the native plugin contract", async 
 
   try {
     const nativePlugin = await createPlugin(fixture.repoPath);
-    const nativeResult = await nativePlugin.tool.worktree_cleanup.execute(
+    const { result: nativeResult } = await executeToolWithMetadata(
+      nativePlugin.tool.worktree_cleanup.execute,
       { raw: "preview", selectors: [] },
-      { metadata() {}, worktree: fixture.repoPath },
+      fixture.repoPath,
     );
 
     const cliResult = await execFileAsync("node", [cliPath, "wt-clean", "preview", "--json"], {
