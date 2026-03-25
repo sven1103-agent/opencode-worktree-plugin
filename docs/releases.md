@@ -3,7 +3,7 @@
 This project ships releases in two places:
 
 - npm package: `@sven1103/opencode-worktree-workflow`
-- GitHub Release assets: `wt-new.md`, `wt-clean.md`, and `worktree-workflow.md`
+- GitHub Release assets: `wt-new.md`, `wt-clean.md`, and `SKILL.md`
 
 This guide explains what those artifacts contain, how they are produced, and what you can verify before installing them.
 
@@ -28,7 +28,7 @@ Each GitHub Release also attaches these ready-to-download markdown artifacts:
 
 - `wt-new.md`
 - `wt-clean.md`
-- `worktree-workflow.md`
+- `SKILL.md`
 
 These files are plain markdown artifacts meant for OpenCode command or skill locations, depending on the file.
 
@@ -72,7 +72,7 @@ Check the latest release page and confirm it contains:
 
 - a tag like `v0.2.0`
 - generated release notes describing the tagged changes
-- release assets named `wt-new.md`, `wt-clean.md`, and `worktree-workflow.md`
+- release assets named `wt-new.md`, `wt-clean.md`, and `SKILL.md`
 
 You can also download and inspect the files directly before placing them into your OpenCode commands or skill directories.
 
@@ -89,7 +89,7 @@ If you want to compare the tagged markdown assets with the downloaded release as
 
 - `commands/wt-new.md`
 - `commands/wt-clean.md`
-- `skills/worktree-workflow.md`
+- `skills/worktree-workflow/SKILL.md`
 
 ## What a release does not promise
 
@@ -108,7 +108,7 @@ Choose the release artifact that matches how you use OpenCode:
 
 - plugin tools only: install the npm package and reference it from your OpenCode config
 - slash commands only: download `wt-new.md` and `wt-clean.md`
-- skill only: download `worktree-workflow.md` if you want the policy layer without the command wrappers
+- skill only: download `SKILL.md` into a `worktree-workflow/` skill folder if you want the policy layer without the command wrappers
 - full setup: install the npm package and also download the slash commands and skill
 
 For most users, the full setup is the clearest experience because the slash commands and skill both layer on top of the same package capability.
