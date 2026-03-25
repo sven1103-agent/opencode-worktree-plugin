@@ -1,6 +1,6 @@
 ---
 name: worktree-workflow
-description: Use this skill when you need to decide whether a task should move into a git worktree, when repo root is still safe, or when you need to choose between native worktree tools and the standard CLI fallback.
+description: Use this skill when working on changes that should be isolated from the main repo, such as refactoring multiple files, making risky edits, experimenting, creating parallel work (like branches or worktrees), or when you are unsure whether it is safe to edit directly in the repo root. Use it when you are orchestrating tasks for implementation and review. Not needed for small, simple one-file edits.
 ---
 
 ## When to use me
@@ -48,6 +48,27 @@ description: Use this skill when you need to decide whether a task should move i
 - Keep cleanup preview-first by default because cleanup is preview-first unless deletion is clearly intended.
 - Use cleanup apply only when deletion is clearly intended and controlled by the orchestrating runtime.
 - Treat slash commands as manual human entry points, not as the canonical agent interface.
+
+## Result reporting
+
+- Always surface the concrete outcome of worktree operations to the user.
+- Do not summarize away important details.
+
+When a worktree is created, include:
+- The worktree path
+- The branch name (if created or used)
+- The base branch
+- Whether it was newly created or reused
+
+When cleanup is run:
+- Show the preview or the list of affected worktrees
+- Clearly distinguish preview vs applied changes
+
+When commands are executed inside a worktree:
+- Mention that the worktree path is the active working directory
+- Include relevant command results (status, diff summary, errors)
+
+Prefer structured, explicit output over vague summaries.
 
 ## Boundaries
 
