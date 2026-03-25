@@ -13,6 +13,8 @@ const DEFAULTS = {
   protectedBranches: [],
 };
 
+const RESULT_SCHEMA_VERSION = "1.0.0";
+
 async function pathExists(targetPath) {
   try {
     await fs.access(targetPath);
@@ -163,6 +165,18 @@ function formatPreview(grouped, defaultBranch) {
   ].join("\n");
 }
 
+function formatPrepareSummary(result) {
+  return [
+    `Created worktree for "${result.title}".`,
+    `- branch: ${result.branch}`,
+    `- worktree: ${result.worktree_path}`,
+    `- default branch: ${result.default_branch}`,
+    `- base branch: ${result.base_branch}`,
+    `- base ref: ${result.base_ref}`,
+    `- base commit: ${result.base_commit}`,
+  ].join("\n");
+}
+
 function formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors) {
   const lines = [`Cleaned worktrees relative to ${defaultBranch}:`];
 
@@ -192,6 +206,87 @@ function formatCleanupSummary(defaultBranch, removed, failed, requestedSelectors
   }
 
   return lines.join("\n");
+}
+
+function toStructuredCleanupItem(item) {
+  return {
+    branch: item.branch ?? null,
+    worktree_path: item.path ?? item.worktree_path ?? null,
+    head: item.head ?? null,
+    status: item.status ?? null,
+    reason: item.reason ?? null,
+    detached: Boolean(item.detached),
+    selectable: typeof item.selectable === "boolean" ? item.selectable : null,
+  };
+}
+
+function toStructuredCleanupFailure(item) {
+  return {
+    selector: item.selector ?? null,
+    branch: item.branch ?? null,
+    worktree_path: item.path ?? item.worktree_path ?? null,
+    status: item.status ?? null,
+    reason: item.reason ?? null,
+    detached: Boolean(item.detached),
+    selectable: typeof item.selectable === "boolean" ? item.selectable : null,
+  };
+}
+
+function buildPrepareResult({ title, branch, worktreePath, defaultBranch, baseBranch, baseRef, baseCommit }) {
+  const result = {
+    schema_version: RESULT_SCHEMA_VERSION,
+    ok: true,
+    title,
+    branch,
+    worktree_path: worktreePath,
+    default_branch: defaultBranch,
+    base_branch: baseBranch,
+    base_ref: baseRef,
+    base_commit: baseCommit,
+    created: true,
+  };
+
+  return {
+    ...result,
+    message: formatPrepareSummary(result),
+  };
+}
+
+function buildCleanupPreviewResult({ defaultBranch, baseBranch, baseRef, grouped }) {
+  const structuredGroups = {
+    safe: grouped.safe.map(toStructuredCleanupItem),
+    review: grouped.review.map(toStructuredCleanupItem),
+    blocked: grouped.blocked.map(toStructuredCleanupItem),
+  };
+
+  return {
+    schema_version: RESULT_SCHEMA_VERSION,
+    ok: true,
+    mode: "preview",
+    default_branch: defaultBranch,
+    base_branch: baseBranch,
+    base_ref: baseRef,
+    groups: structuredGroups,
+    message: formatPreview(grouped, baseBranch),
+  };
+}
+
+function buildCleanupApplyResult({ defaultBranch, baseBranch, baseRef, removed, failed, requestedSelectors }) {
+  return {
+    schema_version: RESULT_SCHEMA_VERSION,
+    ok: true,
+    mode: "apply",
+    default_branch: defaultBranch,
+    base_branch: baseBranch,
+    base_ref: baseRef,
+    requested_selectors: requestedSelectors,
+    removed: removed.map((item) => ({
+      ...toStructuredCleanupItem(item),
+      selected: Boolean(item.selected),
+    })),
+    failed: failed.map(toStructuredCleanupFailure),
+    message: formatCleanupSummary(baseBranch, removed, failed, requestedSelectors),
+  };
 }
 
 function splitCleanupToken(value) {
@@ -275,8 +370,14 @@ function normalizeCleanupArgs(args, config) {
 }
 
 export const __internal = {
+  RESULT_SCHEMA_VERSION,
+  buildCleanupApplyResult,
+  buildCleanupPreviewResult,
+  buildPrepareResult,
   parseCleanupRawArguments,
   normalizeCleanupArgs,
+  toStructuredCleanupFailure,
+  toStructuredCleanupItem,
 };
 
 function selectorMatches(item, selector) {
@@ -529,15 +630,15 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             );
           }
 
-          return [
-            `Created worktree for \"${args.title}\".`,
-            `- branch: ${branchName}`,
-            `- worktree: ${worktreePath}`,
-            `- default branch: ${defaultBranch}`,
-            `- base branch: ${baseBranch}`,
-            `- base ref: ${baseRef}`,
-            `- base commit: ${baseCommit}`,
-          ].join("\n");
+          return buildPrepareResult({
+            title: args.title,
+            branch: branchName,
+            worktreePath,
+            defaultBranch,
+            baseBranch,
+            baseRef,
+            baseCommit,
+          });
         },
       }),
       worktree_cleanup: tool({
@@ -593,7 +694,12 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
           }
 
           if (normalizedArgs.mode !== "apply") {
-            return formatPreview(grouped, baseBranch);
+            return buildCleanupPreviewResult({
+              defaultBranch,
+              baseBranch,
+              baseRef,
+              grouped,
+            });
           }
 
           const requestedSelectors = [...new Set(normalizedArgs.selectors || [])];
@@ -676,7 +782,14 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             allowFailure: true,
           });
 
-          return formatCleanupSummary(baseBranch, removed, failed, requestedSelectors);
+          return buildCleanupApplyResult({
+            defaultBranch,
+            baseBranch,
+            baseRef,
+            removed,
+            failed,
+            requestedSelectors,
+          });
         },
       }),
     },

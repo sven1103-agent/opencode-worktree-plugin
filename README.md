@@ -82,6 +82,19 @@ curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/
 
 This package currently focuses on plugin distribution. Slash command packaging can be layered on later.
 
+## Structured contract
+
+The native tool results now use a versioned structured contract with a `schema_version` field.
+
+- current `schema_version`: `1.0.0`
+- contract overview: `docs/contract.md`
+- checked-in schemas for transparency:
+  - `schemas/worktree-prepare.result.schema.json`
+  - `schemas/worktree-cleanup-preview.result.schema.json`
+  - `schemas/worktree-cleanup-apply.result.schema.json`
+
+Human-readable output remains available through the result `message`, but callers should depend on the structured fields rather than parsing prose.
+
 ## Optional project configuration
 
 OpenCode's native `opencode.json` and `opencode.jsonc` files are schema-validated, so they can load this plugin through the standard `plugin` key but they cannot store a custom `worktreeWorkflow` block.
