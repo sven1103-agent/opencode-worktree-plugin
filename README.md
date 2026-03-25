@@ -75,12 +75,23 @@ curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/
 curl -fsSL "https://github.com/sven1103-agent/opencode-worktree-plugin/releases/download/${VERSION}/wt-clean.md" -o ".opencode/commands/wt-clean.md"
 ```
 
+## Co-shipped skill
+
+This repo also co-ships a `worktree-workflow` skill as a policy layer over the package capability.
+
+- checked-in skill: `skills/worktree-workflow.md`
+- release asset: `worktree-workflow.md`
+
+The skill teaches when to use task-scoped worktrees, when repo root is still acceptable, and how to prefer the native tool path before falling back to the packaged CLI.
+
+If your setup uses installed skill files, copy the released `worktree-workflow.md` into the appropriate skill location for that environment, or consume the checked-in file from this repo directly.
+
 ## What the plugin provides
 
 - `worktree_prepare`: create a worktree and matching branch from the latest configured base-branch commit, or the default branch when no base branch is configured
 - `worktree_cleanup`: preview all connected worktrees against the configured base branch, auto-clean safe ones, and optionally remove selected review items
 
-This package currently focuses on plugin distribution. Slash command packaging can be layered on later.
+This package now ships the plugin capability, a CLI fallback surface, thin slash commands, and a co-shipped policy skill.
 
 ## Structured contract
 
