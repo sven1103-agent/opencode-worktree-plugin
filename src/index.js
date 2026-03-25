@@ -24,6 +24,14 @@ async function pathExists(targetPath) {
   }
 }
 
+function isMissingGitRepositoryError(message) {
+  return /not a git repository/i.test(message);
+}
+
+function isMissingRemoteError(message, remote) {
+  return new RegExp(`No such remote:?\s+${remote}|does not appear to be a git repository|Could not read from remote repository`, "i").test(message);
+}
+
 async function readJsonFile(filePath) {
   if (!(await pathExists(filePath))) {
     return null;
@@ -376,6 +384,8 @@ export const __internal = {
   buildCleanupPreviewResult,
   buildPrepareResult,
   classifyEntry,
+  isMissingGitRepositoryError,
+  isMissingRemoteError,
   parseCleanupRawArguments,
   normalizeCleanupArgs,
   toStructuredCleanupFailure,
@@ -470,8 +480,18 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
   }
 
   async function getRepoRoot() {
-    const result = await git(["rev-parse", "--show-toplevel"]);
-    return result.stdout;
+    try {
+      const result = await git(["rev-parse", "--show-toplevel"]);
+      return result.stdout;
+    } catch (error) {
+      if (isMissingGitRepositoryError(error.message || "")) {
+        throw new Error(
+          "This command must run inside a git repository. Initialize a repository first or run it from an existing repo root.",
+        );
+      }
+
+      throw error;
+    }
   }
 
   async function loadWorkflowConfig(repoRoot) {
@@ -557,7 +577,17 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
   }
 
   async function getBaseRef(repoRoot, remote, baseBranch) {
-    await git(["fetch", "--prune", remote, baseBranch], { cwd: repoRoot });
+    try {
+      await git(["fetch", "--prune", remote, baseBranch], { cwd: repoRoot });
+    } catch (error) {
+      if (isMissingRemoteError(error.message || "", remote)) {
+        throw new Error(
+          `Could not fetch base branch information from remote \"${remote}\". Configure the expected remote in .opencode/worktree-workflow.json or add that remote to this repository.`,
+        );
+      }
+
+      throw error;
+    }
 
     const remoteRef = `refs/remotes/${remote}/${baseBranch}`;
     const remoteExists = await git(["show-ref", "--verify", "--quiet", remoteRef], {

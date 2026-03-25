@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -112,6 +113,52 @@ test("CLI --help prints usage", async () => {
     assert.match(result.stdout, /Usage:/);
     assert.match(result.stdout, /wt-new <title>/);
     assert.match(result.stdout, /wt-clean \[preview\|apply\]/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI wt-clean --help prints subcommand usage", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    const result = await execFileAsync("node", [cliPath, "wt-clean", "--help"], {
+      cwd: fixture.repoPath,
+    });
+
+    assert.match(result.stdout, /wt-clean \[preview\|apply\]/);
+    assert.match(result.stdout, /Preview connected worktrees/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI surfaces an actionable error outside a git repository", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    const outsideRepo = path.join(fixture.tempRoot, "outside-repo");
+    await fs.mkdir(outsideRepo, { recursive: true });
+
+    await assert.rejects(
+      execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: outsideRepo }),
+      /must run inside a git repository/i,
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI surfaces an actionable error when the configured remote is missing", async () => {
+  const fixture = await createRemoteRepo();
+
+  try {
+    await execFileAsync("git", ["remote", "remove", "origin"], { cwd: fixture.repoPath });
+
+    await assert.rejects(
+      execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: fixture.repoPath }),
+      /Could not fetch base branch information from remote "origin"/i,
+    );
   } finally {
     await fixture.cleanup();
   }

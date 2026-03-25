@@ -68,6 +68,31 @@ function printUsage() {
   );
 }
 
+function printSubcommandUsage(command) {
+  if (command === "wt-new") {
+    process.stdout.write(
+      [
+        "Usage:",
+        "  opencode-worktree-workflow wt-new <title> [--json]",
+        "",
+        "Create a synced worktree and branch from the configured base branch.",
+      ].join("\n") + "\n",
+    );
+    return;
+  }
+
+  if (command === "wt-clean") {
+    process.stdout.write(
+      [
+        "Usage:",
+        "  opencode-worktree-workflow wt-clean [preview|apply] [selectors...] [--json]",
+        "",
+        "Preview connected worktrees or remove safe and explicitly selected review worktrees.",
+      ].join("\n") + "\n",
+    );
+  }
+}
+
 export function parseCliArgs(argv) {
   const outputJson = argv.includes("--json");
   const args = argv.filter((arg) => arg !== "--json");
@@ -81,6 +106,11 @@ export async function run(argv = process.argv.slice(2)) {
   if (!command || command === "--help" || command === "-h" || command === "help") {
     printUsage();
     process.exitCode = command ? 0 : 1;
+    return;
+  }
+
+  if ((command === "wt-new" || command === "wt-clean") && rest.some((arg) => arg === "--help" || arg === "-h" || arg === "help")) {
+    printSubcommandUsage(command);
     return;
   }
 
