@@ -37,8 +37,8 @@ Existing installations must keep working.
 
 ## Recommended install model
 
-- Best experience: install the npm package and native plugin tools.
-- Mixed environments: use the CLI via `bunx` as the fallback path.
+- Best experience: install the npm package once and enable the native plugin tools.
+- Mixed environments: use the CLI from the same installed package as the fallback path.
 - Human UX: install slash commands when users want explicit manual triggers.
 
 ## Separation of responsibility

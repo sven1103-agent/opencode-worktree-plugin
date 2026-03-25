@@ -1,6 +1,36 @@
 # OpenCode Worktree Workflow
 
-`@sven1103/opencode-worktree-workflow` is an OpenCode plugin that adds git worktree helpers for creating synced feature worktrees and cleaning up merged ones.
+`@sven1103/opencode-worktree-workflow` is an npm package that provides OpenCode git worktree helpers for creating synced feature worktrees and cleaning up merged ones.
+
+## Recommended setup
+
+Install the package once:
+
+```sh
+npm install -D @sven1103/opencode-worktree-workflow
+```
+
+Enable the native OpenCode plugin in `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@sven1103/opencode-worktree-workflow"]
+}
+```
+
+This single package provides two access modes:
+
+- native plugin tools inside OpenCode: `worktree_prepare`, `worktree_cleanup`
+- local CLI fallback from the same installed package:
+  - `npx opencode-worktree-workflow wt-new "<title>" --json`
+  - `npx opencode-worktree-workflow wt-clean <args> --json`
+
+In practice:
+
+- if the plugin is loaded, use the native tools first
+- if the native tools are unavailable, use the local CLI fallback from the same installed package
+- if the package is not installed, no CLI fallback is available
 
 ## Install in an OpenCode project
 
@@ -28,7 +58,7 @@ Keeping the npm dependency in `package.json` makes the installation more durable
 If you do not already install dependencies in your project, you can add the package directly with npm:
 
 ```sh
-npm install @sven1103/opencode-worktree-workflow
+npm install -D @sven1103/opencode-worktree-workflow
 ```
 
 ## Install slash commands
@@ -109,15 +139,15 @@ Human-readable output remains available through the result `message`, but caller
 
 ## CLI fallback
 
-The npm package also exposes a CLI so agents can fall back to `bunx` when the native plugin/tools are not installed.
+The npm package also exposes a local CLI so agents can fall back to the same installed package when the native plugin tools are unavailable.
 
 Examples:
 
 ```sh
-bunx @sven1103/opencode-worktree-workflow wt-new "Improve checkout retry logic"
-bunx @sven1103/opencode-worktree-workflow wt-new "Improve checkout retry logic" --json
-bunx @sven1103/opencode-worktree-workflow wt-clean preview
-bunx @sven1103/opencode-worktree-workflow wt-clean apply feature/foo --json
+npx opencode-worktree-workflow wt-new "Improve checkout retry logic"
+npx opencode-worktree-workflow wt-new "Improve checkout retry logic" --json
+npx opencode-worktree-workflow wt-clean preview
+npx opencode-worktree-workflow wt-clean apply feature/foo --json
 ```
 
 Defaults:
@@ -125,6 +155,7 @@ Defaults:
 - human-readable output by default
 - structured output with `--json`
 - the CLI shares the same underlying implementation and result contract as the native tools
+- the CLI fallback depends on the package already being installed in the project
 
 ## Compatibility model
 

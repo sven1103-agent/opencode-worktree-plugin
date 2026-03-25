@@ -11,13 +11,18 @@ This guide explains what those artifacts contain, how they are produced, and wha
 
 ### npm package
 
-The npm package is the installable OpenCode plugin.
+The npm package is the installable distribution unit for this project.
 
 It contains the publishable source from `src/`, checked-in schemas from `schemas/`, co-shipped skill files from `skills/`, and package metadata from `package.json`.
 
 It does not include the local development helpers under `.opencode/` because the package is intentionally limited by the root `package.json` `files` field.
 
-Once installed and referenced from your OpenCode config, it provides these tools:
+Once installed, it can be used in two ways:
+
+- as an OpenCode plugin when referenced from your OpenCode config
+- as a local CLI fallback via `npx opencode-worktree-workflow ...`
+
+When used as a plugin, it provides these tools:
 
 - `worktree_prepare`
 - `worktree_cleanup`
@@ -32,7 +37,7 @@ Each GitHub Release also attaches these ready-to-download markdown artifacts:
 
 These files are plain markdown artifacts meant for OpenCode command or skill locations, depending on the file.
 
-They are not compiled binaries and they do not install the plugin by themselves. The slash commands are convenience wrappers around the plugin tools, and the skill is a policy layer over the same capability, so they are most useful when you also install the npm package.
+They are not compiled binaries and they do not install the package by themselves. The slash commands are convenience wrappers around the plugin tools, and the skill is a policy layer over the same capability, so they are most useful when you also install the npm package.
 
 ## How a release is produced
 
@@ -107,11 +112,12 @@ Installing the npm package or copying the markdown assets only changes the locat
 Choose the release artifact that matches how you use OpenCode:
 
 - plugin tools only: install the npm package and reference it from your OpenCode config
+- CLI fallback only: install the npm package and run `npx opencode-worktree-workflow ...`
 - slash commands only: download `wt-new.md` and `wt-clean.md`
 - skill only: download `SKILL.md` into a `worktree-workflow/` skill folder if you want the policy layer without the command wrappers
 - full setup: install the npm package and also download the slash commands and skill
 
-For most users, the full setup is the clearest experience because the slash commands and skill both layer on top of the same package capability.
+For most users, the clearest setup is: install the npm package once, enable the plugin if your environment supports it, and treat the local CLI as the fallback path from that same installed package.
 
 ## If something looks off
 
