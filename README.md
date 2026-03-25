@@ -84,17 +84,26 @@ This package currently focuses on plugin distribution. Slash command packaging c
 
 ## Optional project configuration
 
-You can override the defaults in `opencode.json`, `opencode.jsonc`, or `.opencode/worktree-workflow.json`:
+OpenCode's native `opencode.json` and `opencode.jsonc` files are schema-validated, so they can load this plugin through the standard `plugin` key but they cannot store a custom `worktreeWorkflow` block.
+
+To override this plugin's defaults, put a sidecar config file at `.opencode/worktree-workflow.json`:
 
 ```json
 {
-  "worktreeWorkflow": {
-    "branchPrefix": "wt/",
-    "remote": "origin",
-    "worktreeRoot": ".worktrees/$REPO",
-    "cleanupMode": "preview",
-    "protectedBranches": ["release"]
-  }
+  "branchPrefix": "wt/",
+  "remote": "origin",
+  "worktreeRoot": ".worktrees/$REPO",
+  "cleanupMode": "preview",
+  "protectedBranches": ["release"]
+}
+```
+
+Use `opencode.json` only to load the npm plugin itself:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@sven1103/opencode-worktree-workflow"]
 }
 ```
 

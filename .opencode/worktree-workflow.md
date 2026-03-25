@@ -12,22 +12,28 @@ This local OpenCode workflow adds two slash commands for development and testing
 
 The plugin works with zero config.
 
-If you want per-project overrides, add either:
+If you want per-project overrides, use a sidecar file at `.opencode/worktree-workflow.json`.
 
-- a `worktreeWorkflow` block in `opencode.json` or `opencode.jsonc`, or
-- a sidecar file at `.opencode/worktree-workflow.json`
+Do not add a top-level `worktreeWorkflow` block to `opencode.json` or `opencode.jsonc`. OpenCode validates those files against its own schema and rejects unknown top-level keys.
 
 Example:
 
 ```json
 {
-  "worktreeWorkflow": {
-    "branchPrefix": "feature/",
-    "remote": "origin",
-    "worktreeRoot": "../worktrees/$REPO",
-    "cleanupMode": "preview",
-    "protectedBranches": ["release"]
-  }
+  "branchPrefix": "feature/",
+  "remote": "origin",
+  "worktreeRoot": "../worktrees/$REPO",
+  "cleanupMode": "preview",
+  "protectedBranches": ["release"]
+}
+```
+
+Use the standard OpenCode config only to load the plugin:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@sven1103/opencode-worktree-workflow"]
 }
 ```
 
