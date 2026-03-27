@@ -1,6 +1,7 @@
 import { tool } from "@opencode-ai/plugin";
 
 import { createWorktreeWorkflowService, __internalService, isMissingGitRepositoryError, isMissingRemoteError } from "./core/worktree-service.js";
+import { decideContinuity, inferTaskLifecycleTransition } from "./core/task-binding.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 function publishStructuredResult(context, result) {
@@ -27,6 +28,8 @@ export const __internal = {
   ...__internalService,
   isMissingGitRepositoryError,
   isMissingRemoteError,
+  decideContinuity,
+  inferTaskLifecycleTransition,
 };
 
 export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
