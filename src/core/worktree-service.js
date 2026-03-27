@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { parse } from "jsonc-parser";
+import { inferTaskLifecycleTransition } from "./task-binding.js";
 
 export const DEFAULTS = {
   branchPrefix: "wt/",
@@ -364,7 +365,13 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     if (!sessionID || !stateStore) return;
     const state = await stateStore.loadSessionState(repoRoot, sessionID);
     const next = stateStore.setActiveTask(
-      stateStore.upsertTask(state, { title: prepared.title, branch: prepared.branch, worktree_path: prepared.worktree_path, status: "active" }),
+      stateStore.upsertTask(state, {
+        task_id: prepared.branch,
+        title: prepared.title,
+        branch: prepared.branch,
+        worktree_path: prepared.worktree_path,
+        status: inferTaskLifecycleTransition({ explicitSignal: "activate" }),
+      }),
       prepared.branch,
     );
     await stateStore.saveSessionState(repoRoot, sessionID, next);
@@ -373,7 +380,12 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     if (!sessionID || !stateStore || removed.length === 0) return;
     let state = await stateStore.loadSessionState(repoRoot, sessionID);
     for (const item of removed) {
-      state = stateStore.upsertTask(state, { branch: item.branch, worktree_path: item.path, status: "cleaned" });
+      state = stateStore.upsertTask(state, {
+        task_id: item.branch,
+        branch: item.branch,
+        worktree_path: item.path,
+        status: inferTaskLifecycleTransition({ explicitSignal: "complete" }),
+      });
       if (stateStore.getActiveTask(state) === item.branch) {
         state = stateStore.setActiveTask(state, null);
       }

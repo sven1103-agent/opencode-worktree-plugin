@@ -143,7 +143,7 @@ test("worktree_cleanup apply updates runtime state for removed task", async () =
     const stateFilePath = path.join(fixture.stateDir, "sessions", stateFiles[0]);
     const state = JSON.parse(await fs.readFile(stateFilePath, "utf8"));
     const task = state.tasks.find((item) => item.branch === prepared.result.branch);
-    assert.equal(task.status, "cleaned");
+    assert.equal(task.status, "completed");
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = prev;
     await fixture.cleanup();
