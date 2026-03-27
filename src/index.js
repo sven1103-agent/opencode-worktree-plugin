@@ -1,7 +1,8 @@
 import { tool } from "@opencode-ai/plugin";
+import path from "node:path";
 
 import { createWorktreeWorkflowService, __internalService, isMissingGitRepositoryError, isMissingRemoteError } from "./core/worktree-service.js";
-import { decideContinuity, inferTaskLifecycleTransition } from "./core/task-binding.js";
+import { classifyToolExecution, decideContinuity, deriveTaskTitle, inferTaskLifecycleTransition } from "./core/task-binding.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 function publishStructuredResult(context, result) {
@@ -29,6 +30,8 @@ export const __internal = {
   isMissingGitRepositoryError,
   isMissingRemoteError,
   decideContinuity,
+  classifyToolExecution,
+  deriveTaskTitle,
   inferTaskLifecycleTransition,
 };
 
@@ -39,7 +42,69 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     stateStore: createRuntimeStateStore(),
   });
 
+  function rewritePathIntoWorktree(value, repoRoot, worktreePath) {
+    if (typeof value !== "string" || !value.trim()) return value;
+    const resolved = path.resolve(value);
+    const repo = path.resolve(repoRoot);
+    const relative = path.relative(repo, resolved);
+    const insideRepo = relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    if (path.isAbsolute(value) && !insideRepo) return value;
+    if (!path.isAbsolute(value)) return path.join(worktreePath, value);
+    return path.join(worktreePath, relative);
+  }
+
+  async function onToolExecuteBefore(input) {
+    const toolName = input?.tool?.name ?? input?.toolName;
+    const args = input?.args || {};
+    const classification = classifyToolExecution({ toolName, args });
+    if (classification.bypass || !classification.requiresIsolation) return input;
+
+    const sessionID = input?.sessionID ?? input?.context?.sessionID;
+    if (!sessionID) throw new Error(`Isolation required for ${toolName || "tool"} but sessionID is missing.`);
+
+    const repoRoot = await service.getRepoRoot();
+    if (toolName === "bash" && typeof args.command === "string" && args.command.includes(path.resolve(repoRoot))) {
+      throw new Error("Blocked: bash command includes repo-root absolute path that cannot be safely rewritten.");
+    }
+
+    const binding = await service.ensureActiveWorktree({
+      sessionID,
+      title: deriveTaskTitle({ toolName, args, sessionID }),
+    });
+
+    const nextArgs = { ...args };
+    if (toolName === "bash" && nextArgs.workdir == null && nextArgs.cwd == null) {
+      nextArgs.workdir = binding.task.worktree_path;
+      nextArgs.cwd = binding.task.worktree_path;
+    }
+    for (const key of ["workdir", "cwd", "filePath"]) {
+      if (key in nextArgs) {
+        nextArgs[key] = rewritePathIntoWorktree(nextArgs[key], binding.repoRoot, binding.task.worktree_path);
+      }
+    }
+
+    return { ...input, args: nextArgs };
+  }
+
+  async function onToolExecuteAfter(input) {
+    const toolName = input?.tool?.name ?? input?.toolName;
+    const sessionID = input?.sessionID ?? input?.context?.sessionID;
+    if (toolName === "worktree_prepare" && sessionID) {
+      const result = input?.metadata?.result ?? input?.result;
+      if (result?.branch && result?.worktree_path) {
+        const repoRoot = await service.getRepoRoot();
+        await service.updateStateForPrepare(repoRoot, sessionID, result, "manual");
+      }
+    }
+    if (sessionID) await service.recordToolUsage({ sessionID });
+    return input;
+  }
+
   return {
+    hooks: {
+      "tool.execute.before": onToolExecuteBefore,
+      "tool.execute.after": onToolExecuteAfter,
+    },
     tool: {
       worktree_prepare: tool({
         description: "Create a synced git worktree from a descriptive title",

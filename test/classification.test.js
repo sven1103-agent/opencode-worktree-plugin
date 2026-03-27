@@ -58,3 +58,23 @@ test("classifyEntry blocks protected branches outside the repository root", () =
   assert.equal(result.reason, "protected branch");
   assert.equal(result.selectable, false);
 });
+
+test("classifyToolExecution treats structured read tools as read-only", () => {
+  const result = __internal.classifyToolExecution({ toolName: "read", args: { filePath: "a.txt" } });
+  assert.equal(result.requiresIsolation, false);
+});
+
+test("classifyToolExecution treats write as mutating", () => {
+  const result = __internal.classifyToolExecution({ toolName: "write", args: { filePath: "a.txt" } });
+  assert.equal(result.requiresIsolation, true);
+});
+
+test("classifyToolExecution allows read-only git bash command", () => {
+  const result = __internal.classifyToolExecution({ toolName: "bash", args: { command: "git status" } });
+  assert.equal(result.requiresIsolation, false);
+});
+
+test("classifyToolExecution requires isolation for unknown tools", () => {
+  const result = __internal.classifyToolExecution({ toolName: "mystery_tool", args: {} });
+  assert.equal(result.requiresIsolation, true);
+});

@@ -361,7 +361,7 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     const exists = await git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], { cwd: repoRoot, allowFailure: true });
     if (exists.exitCode === 0) throw new Error(`Local branch already exists: ${branchName}`);
   }
-  async function updateStateForPrepare(repoRoot, sessionID, prepared) {
+  async function updateStateForPrepare(repoRoot, sessionID, prepared, createdBy = "manual") {
     if (!sessionID || !stateStore) return;
     const state = await stateStore.loadSessionState(repoRoot, sessionID);
     const next = stateStore.setActiveTask(
@@ -370,6 +370,7 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
         title: prepared.title,
         branch: prepared.branch,
         worktree_path: prepared.worktree_path,
+        created_by: createdBy,
         status: inferTaskLifecycleTransition({ explicitSignal: "activate" }),
       }),
       prepared.branch,
@@ -393,7 +394,7 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     await stateStore.saveSessionState(repoRoot, sessionID, state);
   }
 
-  async function prepare({ title, sessionID }) {
+  async function prepare({ title, sessionID, createdBy = "manual" }) {
     const repoRoot = await getRepoRoot();
     const config = await loadWorkflowConfig(repoRoot);
     const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
@@ -409,8 +410,45 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     const branchCommit = (await git(["rev-parse", branchName], { cwd: repoRoot })).stdout;
     if (branchCommit !== baseCommit) throw new Error(`New branch ${branchName} does not match ${baseBranch} at ${baseCommit}. Found ${branchCommit} instead.`);
     const result = buildPrepareResult({ title, branch: branchName, worktreePath, defaultBranch, baseBranch, baseRef, baseCommit });
-    await updateStateForPrepare(repoRoot, sessionID, result);
+    await updateStateForPrepare(repoRoot, sessionID, result, createdBy);
     return result;
+  }
+
+  async function getSessionBinding({ repoRoot, sessionID }) {
+    if (!stateStore || !sessionID) return { state: null, activeTask: null };
+    const state = await stateStore.loadSessionState(repoRoot, sessionID);
+    const activeTask = stateStore.getActiveTaskRecord(state);
+    return { state, activeTask };
+  }
+
+  async function ensureActiveWorktree({ sessionID, title }) {
+    const repoRoot = await getRepoRoot();
+    const { activeTask } = await getSessionBinding({ repoRoot, sessionID });
+    if (activeTask?.worktree_path) {
+      return { repoRoot, task: activeTask };
+    }
+    const prepared = await prepare({ title, sessionID, createdBy: "harness" });
+    return {
+      repoRoot,
+      task: {
+        task_id: prepared.branch,
+        title: prepared.title,
+        branch: prepared.branch,
+        worktree_path: prepared.worktree_path,
+        created_by: "harness",
+        status: "active",
+      },
+    };
+  }
+
+  async function recordToolUsage({ sessionID }) {
+    if (!stateStore || !sessionID) return;
+    const repoRoot = await getRepoRoot();
+    const state = await stateStore.loadSessionState(repoRoot, sessionID);
+    const activeTaskID = stateStore.getActiveTask(state);
+    if (!activeTaskID) return;
+    const next = stateStore.touchTask(state, activeTaskID);
+    await stateStore.saveSessionState(repoRoot, sessionID, next);
   }
 
   async function cleanup({ mode, raw, selectors = [], worktree, sessionID }) {
@@ -471,7 +509,7 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     return result;
   }
 
-  return { prepare, cleanup };
+  return { prepare, cleanup, getRepoRoot, getSessionBinding, ensureActiveWorktree, recordToolUsage, updateStateForPrepare };
 }
 
 export const __internalService = {
