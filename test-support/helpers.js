@@ -71,6 +71,7 @@ async function commitFile(repoPath, fileName, content, message) {
 
 async function createRemoteRepo() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "worktree-base-branch-"));
+  const stateDir = path.join(tempRoot, "runtime-state");
   const remotePath = path.join(tempRoot, "remote.git");
   const repoPath = path.join(tempRoot, "repo");
 
@@ -100,6 +101,7 @@ async function createRemoteRepo() {
 
   return {
     tempRoot,
+    stateDir,
     repoPath,
     async cleanup() {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -123,9 +125,17 @@ async function executeToolWithMetadata(execute, args, worktree) {
       result = input?.metadata?.result ?? result;
     },
     worktree,
+    sessionID: "test-session",
   });
 
   return { title, message, result };
 }
 
-export { commitFile, createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, git, writeFile };
+function withStateDirEnv(stateDir) {
+  return {
+    ...process.env,
+    OPENCODE_WORKTREE_STATE_DIR: stateDir,
+  };
+}
+
+export { commitFile, createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, git, withStateDirEnv, writeFile };

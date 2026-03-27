@@ -8,6 +8,8 @@ import { commitFile, createPlugin, createRemoteRepo, executeToolWithMetadata, gi
 
 test("worktree_prepare checks out from configured baseBranch instead of the default branch", async () => {
   const fixture = await createRemoteRepo();
+  const prev = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
     const plugin = await createPlugin(fixture.repoPath);
@@ -36,7 +38,10 @@ test("worktree_prepare checks out from configured baseBranch instead of the defa
     assert.notEqual(branchCommit, mainCommit);
     assert.equal(output.base_commit, releaseCommit);
     await fs.access(output.worktree_path);
+    const stateFiles = await fs.readdir(path.join(fixture.stateDir, "sessions"));
+    assert.equal(stateFiles.length, 1);
   } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = prev;
     await fixture.cleanup();
   }
 });
@@ -80,6 +85,8 @@ test("worktree_cleanup previews merge state relative to configured baseBranch", 
 
 test("worktree_cleanup apply returns structured partial success details", async () => {
   const fixture = await createRemoteRepo();
+  const prev = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
     await git(fixture.repoPath, ["checkout", "-b", "feature/dirty", "main"]);
@@ -107,7 +114,38 @@ test("worktree_cleanup apply returns structured partial success details", async 
     assert.match(output.failed[0].reason, /dirty|changes|modified/i);
     assert.equal(message, output.message);
     assert.match(message, /Cleanup skipped for:/);
+    await assert.rejects(fs.readdir(path.join(fixture.stateDir, "sessions")), /ENOENT/);
   } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = prev;
+    await fixture.cleanup();
+  }
+});
+
+test("worktree_cleanup apply updates runtime state for removed task", async () => {
+  const fixture = await createRemoteRepo();
+  const prev = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const prepared = await executeToolWithMetadata(plugin.tool.worktree_prepare.execute, { title: "state update" }, fixture.repoPath);
+    await git(fixture.repoPath, ["checkout", "release/v1"]);
+    await git(fixture.repoPath, ["merge", "--ff-only", prepared.result.branch]);
+
+    const cleaned = await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
+      { raw: `apply ${prepared.result.branch}`, selectors: [] },
+      fixture.repoPath,
+    );
+
+    assert.equal(cleaned.result.removed.length, 1);
+    const stateFiles = await fs.readdir(path.join(fixture.stateDir, "sessions"));
+    const stateFilePath = path.join(fixture.stateDir, "sessions", stateFiles[0]);
+    const state = JSON.parse(await fs.readFile(stateFilePath, "utf8"));
+    const task = state.tasks.find((item) => item.branch === prepared.result.branch);
+    assert.equal(task.status, "cleaned");
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = prev;
     await fixture.cleanup();
   }
 });
