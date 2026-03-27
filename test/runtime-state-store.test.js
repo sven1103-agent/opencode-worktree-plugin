@@ -48,6 +48,18 @@ test("setActiveTask enforces single-active invariant", () => {
   assert.equal(activatedB.tasks.find((task) => task.task_id === "wt/b")?.status, "active");
 });
 
+test("runtime store supports active record lookup and touch", () => {
+  let tick = 0;
+  const store = createRuntimeStateStore({ stateDir: "/tmp/unused", now: () => `2026-03-27T00:00:0${++tick}Z` });
+  const withTask = store.upsertTask({ tasks: [] }, { task_id: "wt/x", branch: "wt/x", worktree_path: "/tmp/x", status: "active" });
+  const active = store.setActiveTask(withTask, "wt/x");
+  const record = store.getActiveTaskRecord(active);
+  assert.equal(record?.task_id, "wt/x");
+  const touched = store.touchTask(active, "wt/x");
+  assert.equal(touched.tasks[0].last_used_at, "2026-03-27T00:00:02Z");
+  assert.equal(store.findTaskByWorktreePath(touched, "/tmp/x")?.task_id, "wt/x");
+});
+
 test("loadSessionState migrates legacy active_task and cleaned status", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "wt-state-store-legacy-"));
   try {

@@ -145,6 +145,21 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
     return state?.active_task_id ?? null;
   }
 
+  function findTaskByID(state, taskID) {
+    if (!taskID) return null;
+    return (Array.isArray(state?.tasks) ? state.tasks : []).find((task) => task?.task_id === taskID) ?? null;
+  }
+
+  function findTaskByWorktreePath(state, worktreePath) {
+    if (!worktreePath) return null;
+    const resolved = path.resolve(worktreePath);
+    return (Array.isArray(state?.tasks) ? state.tasks : []).find((task) => task?.worktree_path && path.resolve(task.worktree_path) === resolved) ?? null;
+  }
+
+  function getActiveTaskRecord(state) {
+    return findTaskByID(state, getActiveTask(state));
+  }
+
   function setActiveTask(state, activeTaskID) {
     const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
     const nextTasks = tasks.map((task) => {
@@ -197,13 +212,26 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
     };
   }
 
+  function touchTask(state, taskID) {
+    const timestamp = now();
+    const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
+    return {
+      ...state,
+      tasks: tasks.map((task) => (task?.task_id === taskID ? { ...task, last_used_at: timestamp } : task)),
+    };
+  }
+
   return {
     stateDir,
     loadSessionState,
     saveSessionState,
     getActiveTask,
+    getActiveTaskRecord,
+    findTaskByID,
+    findTaskByWorktreePath,
     setActiveTask,
     upsertTask,
+    touchTask,
   };
 }
 

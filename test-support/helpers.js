@@ -131,6 +131,14 @@ async function executeToolWithMetadata(execute, args, worktree) {
   return { title, message, result };
 }
 
+async function runToolExecuteBeforeHook(plugin, input) {
+  return plugin.hooks["tool.execute.before"](input);
+}
+
+async function runToolExecuteAfterHook(plugin, input) {
+  return plugin.hooks["tool.execute.after"](input);
+}
+
 function withStateDirEnv(stateDir) {
   return {
     ...process.env,
@@ -138,4 +146,15 @@ function withStateDirEnv(stateDir) {
   };
 }
 
-export { commitFile, createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, git, withStateDirEnv, writeFile };
+export {
+  commitFile,
+  createPlugin,
+  createRemoteRepo,
+  execFileAsync,
+  executeToolWithMetadata,
+  git,
+  runToolExecuteAfterHook,
+  runToolExecuteBeforeHook,
+  withStateDirEnv,
+  writeFile,
+};
