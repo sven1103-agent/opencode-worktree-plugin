@@ -11,7 +11,10 @@ import {
   deriveTaskTitle,
   deriveWorkspaceRole,
   extractHandoffArtifactPath,
+  getToolRewritePolicy,
+  hasOpaqueRepoRootAbsoluteReference,
   inferTaskLifecycleTransition,
+  rewriteRepoScopedPathIntoWorktree,
 } from "./core/task-binding.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
@@ -87,6 +90,9 @@ export const __internal = {
   extractHandoffArtifactPath,
   buildWorkspaceContext,
   inferTaskLifecycleTransition,
+  getToolRewritePolicy,
+  rewriteRepoScopedPathIntoWorktree,
+  hasOpaqueRepoRootAbsoluteReference,
 };
 
 export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
@@ -96,36 +102,36 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     stateStore: createRuntimeStateStore(),
   });
 
-  function rewritePathIntoWorktree(value, repoRoot, worktreePath) {
-    if (typeof value !== "string" || !value.trim()) return value;
-    const resolved = path.resolve(value);
-    const repo = path.resolve(repoRoot);
-    const relative = path.relative(repo, resolved);
-    const insideRepo = relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-    if (path.isAbsolute(value) && !insideRepo) return value;
-    if (!path.isAbsolute(value)) return path.join(worktreePath, value);
-    return path.join(worktreePath, relative);
-  }
-
   async function onToolExecuteBefore(input) {
     const toolName = input?.tool?.name ?? input?.toolName;
     const args = input?.args || {};
     const classification = classifyToolExecution({ toolName, args });
-    if (classification.bypass || !classification.requiresIsolation) return input;
+    if (classification.bypass) return input;
+    const rewritePolicy = getToolRewritePolicy({ toolName });
 
     const sessionID = input?.sessionID ?? input?.context?.sessionID;
-    if (!sessionID) throw new Error(`Isolation required for ${toolName || "tool"} but sessionID is missing.`);
+    let binding = null;
 
-    const repoRoot = await service.getRepoRoot();
-    if (toolName === "bash" && typeof args.command === "string" && args.command.includes(path.resolve(repoRoot))) {
-      throw new Error("Blocked: bash command includes repo-root absolute path that cannot be safely rewritten.");
+    if (classification.requiresIsolation) {
+      if (!sessionID) throw new Error(`Isolation required for ${toolName || "tool"} but sessionID is missing.`);
+      const repoRoot = await service.getRepoRoot();
+      for (const key of rewritePolicy.opaqueArgKeys) {
+        if (hasOpaqueRepoRootAbsoluteReference({ value: args[key], repoRoot })) {
+          throw new Error(`Blocked: ${toolName} ${key} includes repo-root absolute path that cannot be safely rewritten.`);
+        }
+      }
+      binding = await service.ensureActiveWorktree({
+        sessionID,
+        title: deriveTaskTitle({ toolName, args, sessionID }),
+        workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }),
+      });
+    } else if (sessionID) {
+      const repoRoot = await service.getRepoRoot();
+      const { activeTask } = await service.getSessionBinding({ repoRoot, sessionID });
+      if (activeTask?.worktree_path) binding = { repoRoot, task: activeTask };
     }
 
-    const binding = await service.ensureActiveWorktree({
-      sessionID,
-      title: deriveTaskTitle({ toolName, args, sessionID }),
-      workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }),
-    });
+    if (!binding) return input;
 
     if (toolName === "task") {
       const handoffPath = resolveSafeHandoffPath({
@@ -152,9 +158,16 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       nextArgs.workdir = binding.task.worktree_path;
       nextArgs.cwd = binding.task.worktree_path;
     }
-    for (const key of ["workdir", "cwd", "filePath"]) {
+    if ((toolName === "glob" || toolName === "grep") && nextArgs.path == null) {
+      nextArgs.path = binding.task.worktree_path;
+    }
+    for (const key of rewritePolicy.pathArgKeys) {
       if (key in nextArgs) {
-        nextArgs[key] = rewritePathIntoWorktree(nextArgs[key], binding.repoRoot, binding.task.worktree_path);
+        nextArgs[key] = rewriteRepoScopedPathIntoWorktree({
+          value: nextArgs[key],
+          repoRoot: binding.repoRoot,
+          worktreePath: binding.task.worktree_path,
+        });
       }
     }
 

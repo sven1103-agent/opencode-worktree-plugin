@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export function decideContinuity({ hasActiveTask = false, continuationSignal = false, distinctObjectiveSignal = false, alternativeRequested = false, ambiguous = false } = {}) {
   if (!hasActiveTask) {
     return { decision: "create-new", reason: "no-active-task" };
@@ -76,4 +78,59 @@ export function buildWorkspaceContext({ task, workspaceRole } = {}) {
     workspace_role: workspaceRole || "linear-flow",
     lifecycle_state: task?.status ?? "active",
   };
+}
+
+const REWRITE_POLICIES = {
+  read: { pathArgKeys: ["filePath"], opaqueArgKeys: [] },
+  write: { pathArgKeys: ["filePath"], opaqueArgKeys: [] },
+  edit: { pathArgKeys: ["filePath"], opaqueArgKeys: [] },
+  glob: { pathArgKeys: ["path"], opaqueArgKeys: [] },
+  grep: { pathArgKeys: ["path"], opaqueArgKeys: [] },
+  bash: { pathArgKeys: ["workdir", "cwd"], opaqueArgKeys: ["command"] },
+  apply_patch: { pathArgKeys: [], opaqueArgKeys: ["patchText"] },
+};
+
+export function getToolRewritePolicy({ toolName } = {}) {
+  return REWRITE_POLICIES[toolName] || { pathArgKeys: [], opaqueArgKeys: [] };
+}
+
+function isInsideRepoRoot(candidatePath, repoRoot) {
+  const relative = path.relative(repoRoot, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isInsideWorktree(candidatePath, worktreePath) {
+  const relative = path.relative(worktreePath, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+export function rewriteRepoScopedPathIntoWorktree({ value, repoRoot, worktreePath } = {}) {
+  if (typeof value !== "string" || !value.trim()) return value;
+  const normalizedRepoRoot = path.resolve(repoRoot);
+  const normalizedWorktreePath = path.resolve(worktreePath);
+  if (!path.isAbsolute(value)) return path.join(normalizedWorktreePath, value);
+  const resolvedValue = path.resolve(value);
+  if (isInsideWorktree(resolvedValue, normalizedWorktreePath)) return resolvedValue;
+  if (!isInsideRepoRoot(resolvedValue, normalizedRepoRoot)) return value;
+  const relative = path.relative(normalizedRepoRoot, resolvedValue);
+  return relative ? path.join(normalizedWorktreePath, relative) : normalizedWorktreePath;
+}
+
+function isBoundaryChar(char) {
+  if (!char) return true;
+  return /[\s"'`()[\]{}<>,:;=]/.test(char) || char === "/" || char === "\\";
+}
+
+export function hasOpaqueRepoRootAbsoluteReference({ value, repoRoot } = {}) {
+  if (typeof value !== "string" || !value) return false;
+  const normalizedRepoRoot = path.resolve(repoRoot).replaceAll("\\", "/");
+  const normalizedValue = value.replaceAll("\\", "/");
+  let index = normalizedValue.indexOf(normalizedRepoRoot);
+  while (index !== -1) {
+    const before = index > 0 ? normalizedValue[index - 1] : "";
+    const after = normalizedValue[index + normalizedRepoRoot.length] || "";
+    if (isBoundaryChar(before) && isBoundaryChar(after)) return true;
+    index = normalizedValue.indexOf(normalizedRepoRoot, index + 1);
+  }
+  return false;
 }

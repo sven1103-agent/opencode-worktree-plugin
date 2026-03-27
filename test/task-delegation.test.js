@@ -68,3 +68,22 @@ test("task delegation rejects sibling-prefix absolute handoff paths", async () =
     await fixture.cleanup();
   }
 });
+
+test("task delegation remains functional with absolute in-repo handoff path", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const handoffPath = await createHandoffArtifact(fixture.repoPath, "session-d", "handoff-d");
+    const output = await runTaskDelegationHook(plugin, {
+      sessionID: "session-d",
+      prompt: `Execute ${handoffPath}`,
+      subagent_type: "implementer",
+    });
+    assert.match(output.args.prompt, /Workspace binding:/);
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
