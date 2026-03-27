@@ -6,10 +6,19 @@ import path from "node:path";
 const STORE_VERSION = 1;
 
 const LIFECYCLE_VALUES = new Set(["active", "inactive", "completed", "blocked"]);
+const WORKSPACE_ROLES = new Set(["linear-flow", "planner", "implementer", "reviewer"]);
 
 function normalizeLifecycleStatus(value) {
   if (value === "cleaned") return "completed";
   return LIFECYCLE_VALUES.has(value) ? value : "inactive";
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeWorkspaceRole(value) {
+  return WORKSPACE_ROLES.has(value) ? value : "linear-flow";
 }
 
 function createDefaultState(repoRoot, sessionID) {
@@ -48,6 +57,8 @@ function normalizeLoadedState(parsed, repoRoot, sessionID) {
       ...(task && typeof task === "object" ? task : {}),
       task_id: task?.task_id || task?.branch || task?.worktree_path || `task-${index + 1}`,
       status: normalizeLifecycleStatus(task?.status),
+      title: normalizeOptionalString(task?.title),
+      workspace_role: normalizeWorkspaceRole(task?.workspace_role),
     };
     return normalized;
   });
@@ -191,6 +202,8 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
         ...taskPatch,
         task_id: taskPatch?.task_id || taskPatch?.branch || taskPatch?.worktree_path || `task-${tasks.length + 1}`,
         status: normalizeLifecycleStatus(taskPatch?.status),
+        title: normalizeOptionalString(taskPatch?.title),
+        workspace_role: normalizeWorkspaceRole(taskPatch?.workspace_role),
         created_at: timestamp,
         last_used_at: timestamp,
       });
@@ -201,6 +214,8 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
         ...taskPatch,
         task_id: existing.task_id || taskPatch?.task_id || taskPatch?.branch || taskPatch?.worktree_path || `task-${index + 1}`,
         status: normalizeLifecycleStatus(taskPatch?.status ?? existing.status),
+        title: normalizeOptionalString(taskPatch?.title) ?? normalizeOptionalString(existing.title),
+        workspace_role: normalizeWorkspaceRole(taskPatch?.workspace_role ?? existing.workspace_role),
         created_at: existing.created_at || timestamp,
         last_used_at: timestamp,
       };

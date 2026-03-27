@@ -78,3 +78,14 @@ test("classifyToolExecution requires isolation for unknown tools", () => {
   const result = __internal.classifyToolExecution({ toolName: "mystery_tool", args: {} });
   assert.equal(result.requiresIsolation, true);
 });
+
+test("classifyToolExecution treats task tool as delegation", () => {
+  const result = __internal.classifyToolExecution({ toolName: "task", args: { prompt: "x" } });
+  assert.equal(result.requiresIsolation, true);
+  assert.equal(result.kind, "delegation");
+});
+
+test("deriveWorkspaceRole falls back to linear-flow for unknown role", () => {
+  assert.equal(__internal.deriveWorkspaceRole({ subagentType: "implementer" }), "implementer");
+  assert.equal(__internal.deriveWorkspaceRole({ subagentType: "unknown-role" }), "linear-flow");
+});

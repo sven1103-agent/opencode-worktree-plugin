@@ -395,7 +395,7 @@ The same override policy should cover both worktree provisioning failures and un
 
 Editable delegation handoffs should carry explicit workspace fields in the canonical handoff schema, not only in plugin sidecar state.
 
-Required fields:
+Optional-first fields (backward compatible):
 
 - `task_id`
 - `task_title`
