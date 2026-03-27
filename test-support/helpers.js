@@ -139,6 +139,33 @@ async function runToolExecuteAfterHook(plugin, input) {
   return plugin.hooks["tool.execute.after"](input);
 }
 
+async function createHandoffArtifact(repoPath, sessionID, handoffID, payload = {}) {
+  const handoffPath = path.join(repoPath, ".opencode", "sessions", sessionID, "handoffs", `${handoffID}.json`);
+  await writeFile(
+    handoffPath,
+    `${JSON.stringify({
+      version: 1,
+      kind: "implementation_plan",
+      handoff_id: handoffID,
+      parent_handoff_id: `${handoffID}-parent`,
+      from_agent: "planner",
+      to_agent: "implementer",
+      created_at: "2026-03-27T00:00:00Z",
+      status: "pending",
+      payload,
+    }, null, 2)}\n`,
+  );
+  return handoffPath;
+}
+
+async function runTaskDelegationHook(plugin, { sessionID, prompt, subagent_type = "implementer" }) {
+  return runToolExecuteBeforeHook(plugin, {
+    toolName: "task",
+    args: { prompt, subagent_type },
+    sessionID,
+  });
+}
+
 function withStateDirEnv(stateDir) {
   return {
     ...process.env,
@@ -153,8 +180,10 @@ export {
   execFileAsync,
   executeToolWithMetadata,
   git,
+  createHandoffArtifact,
   runToolExecuteAfterHook,
   runToolExecuteBeforeHook,
+  runTaskDelegationHook,
   withStateDirEnv,
   writeFile,
 };

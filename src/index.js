@@ -1,8 +1,18 @@
 import { tool } from "@opencode-ai/plugin";
+import { realpathSync } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 import { createWorktreeWorkflowService, __internalService, isMissingGitRepositoryError, isMissingRemoteError } from "./core/worktree-service.js";
-import { classifyToolExecution, decideContinuity, deriveTaskTitle, inferTaskLifecycleTransition } from "./core/task-binding.js";
+import {
+  buildWorkspaceContext,
+  classifyToolExecution,
+  decideContinuity,
+  deriveTaskTitle,
+  deriveWorkspaceRole,
+  extractHandoffArtifactPath,
+  inferTaskLifecycleTransition,
+} from "./core/task-binding.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 function publishStructuredResult(context, result) {
@@ -24,6 +34,47 @@ function createGitRunner($, directory) {
   };
 }
 
+function resolveSafeHandoffPath({ rawPath, repoRoot, directory }) {
+  if (typeof rawPath !== "string" || !rawPath.trim()) return null;
+  const candidate = path.resolve(path.isAbsolute(rawPath) ? rawPath : path.join(directory, rawPath));
+  const normalized = candidate.split(path.sep).join("/");
+  const safePattern = /\/\.opencode\/sessions\/[A-Za-z0-9_-]+\/handoffs\/[A-Za-z0-9._-]+\.json$/;
+  if (!safePattern.test(normalized)) return null;
+  const base = path.resolve(repoRoot);
+  const canonicalBase = (() => {
+    try {
+      return realpathSync(base);
+    } catch {
+      return base;
+    }
+  })();
+  const canonicalCandidate = (() => {
+    try {
+      return realpathSync(candidate);
+    } catch {
+      return candidate;
+    }
+  })();
+  const relative = path.relative(canonicalBase, canonicalCandidate);
+  const insideRepo = relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  if (!insideRepo) return null;
+  return canonicalCandidate;
+}
+
+async function enrichHandoffArtifact(filePath, workspaceContext) {
+  const source = await fs.readFile(filePath, "utf8");
+  const parsed = JSON.parse(source);
+  const payload = parsed && typeof parsed === "object" && typeof parsed.payload === "object" ? parsed.payload : {};
+  const next = {
+    ...parsed,
+    payload: {
+      ...payload,
+      ...workspaceContext,
+    },
+  };
+  await fs.writeFile(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+}
+
 export const __internal = {
   RESULT_SCHEMA_VERSION: __internalService.RESULT_SCHEMA_VERSION,
   ...__internalService,
@@ -32,6 +83,9 @@ export const __internal = {
   decideContinuity,
   classifyToolExecution,
   deriveTaskTitle,
+  deriveWorkspaceRole,
+  extractHandoffArtifactPath,
+  buildWorkspaceContext,
   inferTaskLifecycleTransition,
 };
 
@@ -70,7 +124,28 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     const binding = await service.ensureActiveWorktree({
       sessionID,
       title: deriveTaskTitle({ toolName, args, sessionID }),
+      workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }),
     });
+
+    if (toolName === "task") {
+      const handoffPath = resolveSafeHandoffPath({
+        rawPath: extractHandoffArtifactPath(args.prompt),
+        repoRoot: binding.repoRoot,
+        directory,
+      });
+      if (!handoffPath) {
+        throw new Error("Blocked: Task delegation prompt must reference a safe handoff artifact path.");
+      }
+      const workspaceContext = buildWorkspaceContext({ task: binding.task, workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }) });
+      await enrichHandoffArtifact(handoffPath, workspaceContext);
+      return {
+        ...input,
+        args: {
+          ...args,
+          prompt: `${args.prompt}\n\nWorkspace binding:\n- task_id: ${workspaceContext.task_id}\n- worktree_path: ${workspaceContext.worktree_path}\n- workspace_role: ${workspaceContext.workspace_role}`,
+        },
+      };
+    }
 
     const nextArgs = { ...args };
     if (toolName === "bash" && nextArgs.workdir == null && nextArgs.cwd == null) {

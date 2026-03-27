@@ -81,3 +81,11 @@ test("loadSessionState migrates legacy active_task and cleaned status", async ()
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("upsertTask preserves title and workspace_role metadata", () => {
+  const store = createRuntimeStateStore({ stateDir: "/tmp/unused" });
+  const first = store.upsertTask({ tasks: [] }, { task_id: "wt/meta", branch: "wt/meta", title: "Meta Task", workspace_role: "reviewer" });
+  const second = store.upsertTask(first, { task_id: "wt/meta", status: "active" });
+  assert.equal(second.tasks[0].title, "Meta Task");
+  assert.equal(second.tasks[0].workspace_role, "reviewer");
+});
