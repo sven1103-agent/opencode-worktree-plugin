@@ -5,7 +5,8 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { WorktreeWorkflowPlugin } from "./index.js";
+import { createWorktreeWorkflowService } from "./core/worktree-service.js";
+import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -115,21 +116,26 @@ export async function run(argv = process.argv.slice(2)) {
     return;
   }
 
-  const plugin = await WorktreeWorkflowPlugin({
-    $: createShell(process.cwd()),
+  const shell = createShell(process.cwd());
+  const git = async (args, options = {}) => {
+    const cwd = options.cwd ?? process.cwd();
+    const command = `git ${args.map((arg) => shell.escape(String(arg))).join(" ")}`;
+    const result = await shell`${{ raw: command }}`.cwd(cwd).quiet().nothrow();
+    const stdout = result.text().trim();
+    const stderr = result.stderr.toString("utf8").trim();
+    if (!options.allowFailure && result.exitCode !== 0) {
+      throw new Error(stderr || stdout || `Git command failed: ${command}`);
+    }
+    return { stdout, stderr, exitCode: result.exitCode };
+  };
+  const service = createWorktreeWorkflowService({
     directory: process.cwd(),
+    git,
+    stateStore: createRuntimeStateStore(),
   });
 
   let result;
   let structuredResult = null;
-  const toolContext = {
-    metadata(input) {
-      if (input?.metadata?.result) {
-        structuredResult = input.metadata.result;
-      }
-    },
-    worktree: process.cwd(),
-  };
 
   if (command === "wt-new") {
     const title = rest.join(" ").trim();
@@ -138,10 +144,12 @@ export async function run(argv = process.argv.slice(2)) {
       throw new Error("wt-new requires a descriptive title.");
     }
 
-    result = await plugin.tool.worktree_prepare.execute({ title }, toolContext);
+    structuredResult = await service.prepare({ title, sessionID: "cli" });
+    result = structuredResult.message;
   } else if (command === "wt-clean") {
     const raw = rest.join(" ").trim();
-    result = await plugin.tool.worktree_cleanup.execute({ raw, selectors: [] }, toolContext);
+    structuredResult = await service.cleanup({ raw, selectors: [], worktree: process.cwd(), sessionID: "cli" });
+    result = structuredResult.message;
   } else {
     throw new Error(`Unknown command: ${command}`);
   }

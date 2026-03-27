@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { __internal } from "../src/index.js";
 import { isInvokedAsScript, parseCliArgs } from "../src/cli.js";
-import { createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata } from "../test-support/helpers.js";
+import { createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, withStateDirEnv } from "../test-support/helpers.js";
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
 
@@ -16,6 +16,7 @@ test("CLI wt-new emits structured JSON with --json", async () => {
   try {
     const result = await execFileAsync("node", [cliPath, "wt-new", "CLI contract test", "--json"], {
       cwd: fixture.repoPath,
+      env: withStateDirEnv(fixture.stateDir),
     });
 
     const output = JSON.parse(result.stdout);
@@ -24,6 +25,8 @@ test("CLI wt-new emits structured JSON with --json", async () => {
     assert.equal(output.title, "CLI contract test");
     assert.equal(output.base_branch, "release/v1");
     assert.equal(output.default_branch, "main");
+    const stateFiles = await fs.readdir(path.join(fixture.stateDir, "sessions"));
+    assert.equal(stateFiles.length, 1);
   } finally {
     await fixture.cleanup();
   }
@@ -35,6 +38,7 @@ test("CLI wt-clean emits readable output by default", async () => {
   try {
     const result = await execFileAsync("node", [cliPath, "wt-clean", "preview"], {
       cwd: fixture.repoPath,
+      env: withStateDirEnv(fixture.stateDir),
     });
 
     assert.match(result.stdout, /Worktrees connected to this repository against release\/v1:/);
@@ -49,6 +53,7 @@ test("CLI wt-clean emits structured JSON with --json", async () => {
   try {
     const result = await execFileAsync("node", [cliPath, "wt-clean", "preview", "--json"], {
       cwd: fixture.repoPath,
+      env: withStateDirEnv(fixture.stateDir),
     });
 
     const output = JSON.parse(result.stdout);
@@ -100,6 +105,7 @@ test("CLI preview JSON stays compatible with the native plugin contract", async 
 
     const cliResult = await execFileAsync("node", [cliPath, "wt-clean", "preview", "--json"], {
       cwd: fixture.repoPath,
+      env: withStateDirEnv(fixture.stateDir),
     });
 
     const cliOutput = JSON.parse(cliResult.stdout);
