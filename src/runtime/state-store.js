@@ -7,6 +7,7 @@ const STORE_VERSION = 1;
 
 const LIFECYCLE_VALUES = new Set(["active", "inactive", "completed", "blocked"]);
 const WORKSPACE_ROLES = new Set(["linear-flow", "planner", "implementer", "reviewer"]);
+const CREATED_BY_VALUES = new Set(["manual", "harness"]);
 
 function normalizeLifecycleStatus(value) {
   if (value === "cleaned") return "completed";
@@ -19,6 +20,11 @@ function normalizeOptionalString(value) {
 
 function normalizeWorkspaceRole(value) {
   return WORKSPACE_ROLES.has(value) ? value : "linear-flow";
+}
+
+function normalizeCreatedBy(value, fallback = "manual") {
+  if (CREATED_BY_VALUES.has(value)) return value;
+  return CREATED_BY_VALUES.has(fallback) ? fallback : "manual";
 }
 
 function createDefaultState(repoRoot, sessionID) {
@@ -59,6 +65,7 @@ function normalizeLoadedState(parsed, repoRoot, sessionID) {
       status: normalizeLifecycleStatus(task?.status),
       title: normalizeOptionalString(task?.title),
       workspace_role: normalizeWorkspaceRole(task?.workspace_role),
+      created_by: normalizeCreatedBy(task?.created_by),
     };
     return normalized;
   });
@@ -204,6 +211,7 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
         status: normalizeLifecycleStatus(taskPatch?.status),
         title: normalizeOptionalString(taskPatch?.title),
         workspace_role: normalizeWorkspaceRole(taskPatch?.workspace_role),
+        created_by: normalizeCreatedBy(taskPatch?.created_by),
         created_at: timestamp,
         last_used_at: timestamp,
       });
@@ -216,6 +224,7 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
         status: normalizeLifecycleStatus(taskPatch?.status ?? existing.status),
         title: normalizeOptionalString(taskPatch?.title) ?? normalizeOptionalString(existing.title),
         workspace_role: normalizeWorkspaceRole(taskPatch?.workspace_role ?? existing.workspace_role),
+        created_by: normalizeCreatedBy(taskPatch?.created_by, existing.created_by),
         created_at: existing.created_at || timestamp,
         last_used_at: timestamp,
       };

@@ -6,6 +6,8 @@ import path from "node:path";
 import { createWorktreeWorkflowService, __internalService, isMissingGitRepositoryError, isMissingRemoteError } from "./core/worktree-service.js";
 import {
   buildWorkspaceContext,
+  buildWtCleanCommandPromptParts,
+  buildWtNewCommandPromptParts,
   classifyToolExecution,
   decideContinuity,
   deriveTaskTitle,
@@ -188,8 +190,26 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     return input;
   }
 
+  async function onCommandExecuteBefore(input) {
+    const commandName = input?.command?.name ?? input?.name;
+    const normalizedName = typeof commandName === "string" ? commandName.replace(/^\//, "") : "";
+    if (normalizedName !== "wt-new" && normalizedName !== "wt-clean") return input;
+
+    const argsText = typeof input?.arguments === "string" ? input.arguments : typeof input?.args === "string" ? input.args : "";
+    const parts = normalizedName === "wt-new" ? buildWtNewCommandPromptParts(argsText) : buildWtCleanCommandPromptParts(argsText);
+
+    return {
+      ...input,
+      output: {
+        ...(input?.output && typeof input.output === "object" ? input.output : {}),
+        parts,
+      },
+    };
+  }
+
   return {
     hooks: {
+      "command.execute.before": onCommandExecuteBefore,
       "tool.execute.before": onToolExecuteBefore,
       "tool.execute.after": onToolExecuteAfter,
     },

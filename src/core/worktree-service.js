@@ -382,13 +382,18 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     if (!sessionID || !stateStore || removed.length === 0) return;
     let state = await stateStore.loadSessionState(repoRoot, sessionID);
     for (const item of removed) {
+      const existingByID = stateStore.findTaskByID(state, item.branch);
+      const existingByPath = stateStore.findTaskByWorktreePath(state, item.path);
+      const existing = existingByID || existingByPath;
+      const taskID = existing?.task_id || item.branch || item.path;
       state = stateStore.upsertTask(state, {
-        task_id: item.branch,
+        task_id: taskID,
         branch: item.branch,
         worktree_path: item.path,
+        created_by: existing?.created_by || "manual",
         status: inferTaskLifecycleTransition({ explicitSignal: "complete" }),
       });
-      if (stateStore.getActiveTask(state) === item.branch) {
+      if (stateStore.getActiveTask(state) === taskID) {
         state = stateStore.setActiveTask(state, null);
       }
     }

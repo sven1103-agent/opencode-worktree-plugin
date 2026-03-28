@@ -116,7 +116,7 @@ async function createPlugin(repoPath) {
   });
 }
 
-async function executeToolWithMetadata(execute, args, worktree) {
+async function executeToolWithMetadata(execute, args, worktree, { sessionID = "test-session" } = {}) {
   let title = null;
   let result = null;
   const message = await execute(args, {
@@ -125,7 +125,7 @@ async function executeToolWithMetadata(execute, args, worktree) {
       result = input?.metadata?.result ?? result;
     },
     worktree,
-    sessionID: "test-session",
+    sessionID,
   });
 
   return { title, message, result };
@@ -137,6 +137,10 @@ async function runToolExecuteBeforeHook(plugin, input) {
 
 async function runToolExecuteAfterHook(plugin, input) {
   return plugin.hooks["tool.execute.after"](input);
+}
+
+async function runCommandExecuteBeforeHook(plugin, input) {
+  return plugin.hooks["command.execute.before"](input);
 }
 
 async function createHandoffArtifact(repoPath, sessionID, handoffID, payload = {}) {
@@ -182,6 +186,7 @@ export {
   git,
   createHandoffArtifact,
   runToolExecuteAfterHook,
+  runCommandExecuteBeforeHook,
   runToolExecuteBeforeHook,
   runTaskDelegationHook,
   withStateDirEnv,
