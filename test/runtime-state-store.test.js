@@ -89,3 +89,33 @@ test("upsertTask preserves title and workspace_role metadata", () => {
   assert.equal(second.tasks[0].title, "Meta Task");
   assert.equal(second.tasks[0].workspace_role, "reviewer");
 });
+
+test("upsertTask preserves existing created_by when patch omits it", () => {
+  const store = createRuntimeStateStore({ stateDir: "/tmp/unused" });
+  const first = store.upsertTask({ tasks: [] }, { task_id: "wt/provenance", branch: "wt/provenance", created_by: "harness" });
+  const second = store.upsertTask(first, { task_id: "wt/provenance", status: "active" });
+  assert.equal(second.tasks[0].created_by, "harness");
+});
+
+test("loadSessionState normalizes missing or invalid created_by to manual", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "wt-state-store-created-by-"));
+  try {
+    const store = createRuntimeStateStore({ stateDir: root });
+    await store.saveSessionState("/repo/path", "session-created-by", {
+      schema_version: 1,
+      repo_root: "/repo/path",
+      session_id: "session-created-by",
+      active_task_id: null,
+      tasks: [
+        { task_id: "wt/a", branch: "wt/a" },
+        { task_id: "wt/b", branch: "wt/b", created_by: "unknown" },
+      ],
+    });
+
+    const loaded = await store.loadSessionState("/repo/path", "session-created-by");
+    assert.equal(loaded.tasks.find((task) => task.task_id === "wt/a")?.created_by, "manual");
+    assert.equal(loaded.tasks.find((task) => task.task_id === "wt/b")?.created_by, "manual");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

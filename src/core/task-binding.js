@@ -134,3 +134,21 @@ export function hasOpaqueRepoRootAbsoluteReference({ value, repoRoot } = {}) {
   }
   return false;
 }
+
+export function buildWtNewCommandPromptParts(argumentsText = "") {
+  const title = typeof argumentsText === "string" ? argumentsText.trim() : "";
+  if (!title) {
+    return [{ type: "text", text: "Usage: /wt-new <title>\nExample: /wt-new improve checkout retry logic" }];
+  }
+  return [
+    {
+      type: "text",
+      text: `Call worktree_prepare with ${JSON.stringify({ title })}. Return the tool result and treat its worktree_path as the active workspace for follow-up work.`,
+    },
+  ];
+}
+
+export function buildWtCleanCommandPromptParts(argumentsText = "") {
+  const raw = typeof argumentsText === "string" ? argumentsText : "";
+  return [{ type: "text", text: `Call worktree_cleanup with ${JSON.stringify({ raw })}. Return the tool result.` }];
+}

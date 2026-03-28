@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { createRuntimeStateStore } from "../src/runtime/state-store.js";
-import { createPlugin, createRemoteRepo, executeToolWithMetadata, git, runToolExecuteAfterHook, runToolExecuteBeforeHook } from "../test-support/helpers.js";
+import { createPlugin, createRemoteRepo, executeToolWithMetadata, git, runCommandExecuteBeforeHook, runToolExecuteAfterHook, runToolExecuteBeforeHook } from "../test-support/helpers.js";
 
 test("tool.execute.before provisions worktree and rewrites mutating filePath", async () => {
   const fixture = await createRemoteRepo();
@@ -309,6 +309,62 @@ test("tool.execute.after adopts manual prepare result into session state", async
     const state = await store.loadSessionState(repoRoot, "hook-session-4");
     assert.equal(state.active_task_id, result.branch);
     assert.equal(state.tasks[0].created_by, "manual");
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
+test("command.execute.before normalizes /wt-new and /wt-clean prompts", async () => {
+  const fixture = await createRemoteRepo();
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const newResult = await runCommandExecuteBeforeHook(plugin, {
+      command: { name: "wt-new" },
+      arguments: "Issue 37 command parity",
+      output: { parts: [{ type: "text", text: "original" }] },
+    });
+    const cleanResult = await runCommandExecuteBeforeHook(plugin, {
+      command: { name: "wt-clean" },
+      arguments: "apply wt/task",
+      output: { parts: [{ type: "text", text: "original" }] },
+    });
+
+    assert.equal(Array.isArray(newResult.output.parts), true);
+    assert.match(newResult.output.parts[0].text, /worktree_prepare/);
+    assert.match(newResult.output.parts[0].text, /Issue 37 command parity/);
+    assert.equal(Array.isArray(cleanResult.output.parts), true);
+    assert.match(cleanResult.output.parts[0].text, /worktree_cleanup/);
+    assert.match(cleanResult.output.parts[0].text, /apply wt\/task/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("manual cleanup adopts untracked worktree into state as completed manual task", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const manualWorktreePath = path.join(fixture.tempRoot, "manual-cleanup-worktree");
+    await git(fixture.repoPath, ["worktree", "add", "-b", "wt/manual-cleanup", manualWorktreePath, "origin/release/v1"]);
+
+    await executeToolWithMetadata(
+      plugin.tool.worktree_cleanup.execute,
+      { mode: "apply", selectors: ["wt/manual-cleanup"] },
+      fixture.repoPath,
+      { sessionID: "manual-cleanup-session" },
+    );
+
+    const repoRoot = await git(fixture.repoPath, ["rev-parse", "--show-toplevel"]);
+    const store = createRuntimeStateStore({ stateDir: fixture.stateDir });
+    const state = await store.loadSessionState(repoRoot, "manual-cleanup-session");
+    const task = state.tasks.find((item) => item.task_id === "wt/manual-cleanup");
+
+    assert.equal(task?.created_by, "manual");
+    assert.equal(task?.status, "completed");
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();
