@@ -54,8 +54,20 @@ jobs:
       - name: Pack dry run
         run: npm pack --dry-run
 
+      - name: Resolve npm dist-tag
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          DIST_TAG="latest"
+
+          if [[ "$VERSION" == *-* ]]; then
+            DIST_TAG="${VERSION#*-}"
+            DIST_TAG="${DIST_TAG%%.*}"
+          fi
+
+          echo "NPM_DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+
       - name: Publish package
-        run: npm publish
+        run: npm publish --tag "$NPM_DIST_TAG"
 
       - name: Prepare release summary
         run: |
