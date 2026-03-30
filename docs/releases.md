@@ -59,6 +59,35 @@ That means the npm package and the GitHub Release assets are both tied to the sa
 
 Before installing a release, you can verify the version from multiple angles.
 
+### Inspect persisted task-to-worktree bindings
+
+When used as a plugin, the hook harness persists task binding state outside the repository. This is useful for smoke testing because you can verify that the active `task_id` is bound to the expected `worktree_path` without relying only on prompt text.
+
+Default state directory:
+
+- macOS: `~/Library/Application Support/opencode-worktree-workflow/`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/opencode-worktree-workflow/`
+- Windows: `%APPDATA%\opencode-worktree-workflow\`
+
+Override:
+
+- Set `OPENCODE_WORKTREE_STATE_DIR` to place the runtime state somewhere else.
+
+Inside that directory, session state is stored under `sessions/*.json`. The file names are hashed, but the file contents remain inspectable and include:
+
+- `repo_root`
+- `session_id`
+- `active_task_id`
+- `tasks[]` with fields such as `task_id`, `worktree_path`, `status`, `created_by`, and `workspace_role`
+
+For smoke testing, confirm that:
+
+- a session state file exists or updates while the plugin is active
+- the `repo_root` matches the repository under test
+- the active task record points at the expected `worktree_path`
+
+This runtime state is intended for inspection and coordination. It is not part of the published npm package interface and should not be treated as a stable external API.
+
 ### Verify the npm package version
 
 ```sh
