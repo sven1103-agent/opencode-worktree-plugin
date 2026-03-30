@@ -51,7 +51,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "test:smoke": "node --test test/integration/*.test.js",
     "test:smoke:published": "node --test test/integration/*.test.js"
   },
