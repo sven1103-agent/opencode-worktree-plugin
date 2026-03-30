@@ -3,14 +3,19 @@
   "version": "0.1.0",
   "description": "OpenCode plugin for creating and cleaning up git worktrees.",
   "type": "module",
-  "main": "./src/index.js",
+  "main": "./index.cjs",
   "bin": {
     "opencode-worktree-workflow": "./src/cli.js"
   },
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "require": "./index.cjs",
+      "import": "./src/index.js",
+      "default": "./index.cjs"
+    }
   },
   "files": [
+    "index.cjs",
     "src",
     "schemas",
     "skills"
