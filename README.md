@@ -168,6 +168,34 @@ This package now ships the plugin capability, a CLI fallback surface, thin slash
 
 These native tools are exposed inside OpenCode after the plugin is loaded. They are not terminal commands.
 
+## Lifecycle hooks (determinism)
+
+If you use this plugin in autonomous agent tasks, the key feature is that it uses OpenCode lifecycle hooks to make workspace selection deterministic.
+
+Hooks implemented by the plugin:
+
+- `tool.execute.before`
+  - Enforces isolation for repo-mutating tools by ensuring a session-scoped active worktree exists (requires `sessionID`).
+  - Rewrites tool inputs so they operate inside the active worktree by default:
+    - `bash`: injects `workdir`/`cwd` when missing
+    - `glob`/`grep`: injects `path` when missing
+    - known path arguments are rewritten from repo-root paths into the bound `worktree_path`
+  - Blocks unsafe calls that cannot be rewritten safely (for example repo-root absolute paths in opaque arguments).
+  - For delegated `task` calls: requires the prompt to reference a safe handoff artifact path under `.opencode/sessions/<session>/handoffs/*.json`, then enriches that handoff with the active workspace context (`task_id`, `worktree_path`, `workspace_role`).
+
+- `tool.execute.after`
+  - Records tool usage for the session (used to keep runtime state and cleanup advice consistent across steps).
+  - After a delegated `task`, correlates the handoff with result artifacts to infer lifecycle transitions (complete/block) and persists them.
+  - When completion is detected, emits an advisory cleanup preview (non-fatal if it cannot be generated).
+
+- `experimental.chat.system.transform`
+  - Injects an "Active workspace context" block into the system prompt when an active worktree is bound, so agents and tools see the same worktree context every step.
+
+- `command.execute.before`
+  - Implements `/wt-new` and `/wt-clean` as thin prompt shims (it rewrites the command output parts so the agent calls `worktree_prepare` / `worktree_cleanup`).
+
+Net effect: once a `sessionID` is in play, the plugin keeps a stable session-to-worktree binding and consistently routes repository actions into that worktree. This removes prompt-only ambiguity ("did the agent remember to cd?") and is what makes the workflow reproducible.
+
 ## Typical usage
 
 Most users only need one of these flows:
