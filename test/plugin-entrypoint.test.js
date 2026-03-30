@@ -10,11 +10,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 test("package root resolves to a callable plugin factory for require loaders", async () => {
   const pluginModule = require(repoRoot);
 
-  assert.equal(typeof pluginModule, "function");
+  assert.equal(typeof pluginModule, "object");
+  assert.equal(pluginModule.id, "@sven1103/opencode-worktree-workflow");
+  assert.equal(typeof pluginModule.server, "function");
   assert.equal(pluginModule, pluginModule.default);
-  assert.equal(pluginModule, pluginModule.WorktreeWorkflowPlugin);
 
-  const plugin = await pluginModule({
+  const plugin = await pluginModule.server({
     $: Object.assign(
       () => ({
         cwd() {
@@ -39,5 +40,5 @@ test("package root resolves to a callable plugin factory for require loaders", a
   });
 
   assert.equal(typeof plugin, "object");
-  assert.equal(typeof plugin.hooks["tool.execute.before"], "function");
+  assert.equal(typeof plugin["tool.execute.before"], "function");
 });
