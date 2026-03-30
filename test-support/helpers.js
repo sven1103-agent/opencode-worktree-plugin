@@ -139,6 +139,17 @@ async function runToolExecuteAfterHook(plugin, input) {
   return plugin.hooks["tool.execute.after"](input);
 }
 
+async function runToolExecuteAfterHookWithOutput(plugin, input) {
+  const output = await runToolExecuteAfterHook(plugin, input);
+  return {
+    output,
+    advisoryTextParts: Array.isArray(output?.output?.parts)
+      ? output.output.parts.filter((part) => part?.type === "text" && typeof part?.text === "string").map((part) => part.text)
+      : [],
+    advisoryMetadata: output?.metadata?.advisory_cleanup_preview ?? null,
+  };
+}
+
 async function runCommandExecuteBeforeHook(plugin, input) {
   return plugin.hooks["command.execute.before"](input);
 }
@@ -160,6 +171,23 @@ async function createHandoffArtifact(repoPath, sessionID, handoffID, payload = {
     }, null, 2)}\n`,
   );
   return handoffPath;
+}
+
+async function createResultArtifact(repoPath, sessionID, resultID, sourceHandoffID, result = {}) {
+  const resultPath = path.join(repoPath, ".opencode", "sessions", sessionID, "results", `${resultID}.json`);
+  await writeFile(
+    resultPath,
+    `${JSON.stringify({
+      version: 1,
+      result_type: "implementation_summary",
+      agent: "implementer",
+      source_handoff_id: sourceHandoffID,
+      created_at: "2026-03-27T00:00:00Z",
+      status: "done",
+      ...result,
+    }, null, 2)}\n`,
+  );
+  return resultPath;
 }
 
 async function runTaskDelegationHook(plugin, { sessionID, prompt, subagent_type = "implementer" }) {
@@ -185,7 +213,9 @@ export {
   executeToolWithMetadata,
   git,
   createHandoffArtifact,
+  createResultArtifact,
   runToolExecuteAfterHook,
+  runToolExecuteAfterHookWithOutput,
   runCommandExecuteBeforeHook,
   runToolExecuteBeforeHook,
   runTaskDelegationHook,

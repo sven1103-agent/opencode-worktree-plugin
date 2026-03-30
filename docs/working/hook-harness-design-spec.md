@@ -352,9 +352,11 @@ Cleanup remains advisory-only.
 
 Surface cleanup advice only at these points:
 
-- when a task is explicitly or strongly inferred complete
+- when a Task-tool delegation is explicitly or strongly inferred complete from result artifacts linked to the delegated handoff
 - when the user explicitly asks about worktrees or cleanup
 - at session end or long-inactivity resume
+
+Do not emit cleanup advice on blocked outcomes or on unrelated tool completions.
 
 ### Cleanup Visibility
 

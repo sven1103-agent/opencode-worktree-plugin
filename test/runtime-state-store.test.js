@@ -119,3 +119,28 @@ test("loadSessionState normalizes missing or invalid created_by to manual", asyn
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("listRepoSessionStates and listRepoTasks enumerate repo-scoped entries", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "wt-state-store-list-"));
+  try {
+    const store = createRuntimeStateStore({ stateDir: root });
+    const baseOne = await store.loadSessionState("/repo/path", "session-one");
+    const baseTwo = await store.loadSessionState("/repo/path", "session-two");
+    const baseOther = await store.loadSessionState("/other/repo", "session-other");
+    const one = store.upsertTask(baseOne, { task_id: "wt/one", branch: "wt/one", worktree_path: "/tmp/one", created_by: "harness", status: "active" });
+    const two = store.upsertTask(baseTwo, { task_id: "wt/two", branch: "wt/two", worktree_path: "/tmp/two", created_by: "manual", status: "inactive" });
+    const other = store.upsertTask(baseOther, { task_id: "wt/other", branch: "wt/other", worktree_path: "/tmp/other", created_by: "manual", status: "inactive" });
+    await store.saveSessionState("/repo/path", "session-one", store.setActiveTask(one, "wt/one"));
+    await store.saveSessionState("/repo/path", "session-two", two);
+    await store.saveSessionState("/other/repo", "session-other", other);
+
+    const sessions = await store.listRepoSessionStates("/repo/path");
+    const tasks = await store.listRepoTasks("/repo/path");
+
+    assert.equal(sessions.length, 2);
+    assert.equal(tasks.some((task) => task.task_id === "wt/one" && task.active === true), true);
+    assert.equal(tasks.some((task) => task.task_id === "wt/two" && task.session_id === "session-two"), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
