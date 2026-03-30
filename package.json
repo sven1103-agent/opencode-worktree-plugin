@@ -12,8 +12,16 @@
       "require": "./index.cjs",
       "import": "./src/index.js",
       "default": "./index.cjs"
+    },
+    "./server": {
+      "require": "./index.cjs",
+      "import": "./src/index.js",
+      "default": "./index.cjs"
     }
   },
+  "oc-plugin": [
+    "server"
+  ],
   "files": [
     "index.cjs",
     "src",

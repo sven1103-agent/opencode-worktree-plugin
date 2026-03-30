@@ -4,7 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { WorktreeWorkflowPlugin } from "../src/index.js";
+import pluginModule from "../src/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,7 +110,7 @@ async function createRemoteRepo() {
 }
 
 async function createPlugin(repoPath) {
-  return WorktreeWorkflowPlugin({
+  return pluginModule.server({
     $: createShell(repoPath),
     directory: repoPath,
   });
@@ -132,30 +132,62 @@ async function executeToolWithMetadata(execute, args, worktree, { sessionID = "t
 }
 
 async function runToolExecuteBeforeHook(plugin, input) {
-  return plugin.hooks["tool.execute.before"](input);
+  const output = { args: { ...(input?.args || {}) } };
+  await plugin["tool.execute.before"]({
+    tool: input?.tool ?? input?.toolName,
+    sessionID: input?.sessionID,
+    callID: input?.callID ?? "test-call",
+  }, output);
+  return { ...input, args: output.args };
 }
 
 async function runToolExecuteAfterHook(plugin, input) {
-  return plugin.hooks["tool.execute.after"](input);
+  const output = {
+    title: input?.output?.title ?? "",
+    output: input?.output?.output ?? "",
+    metadata: {
+      ...(input?.metadata ?? {}),
+      ...(input?.result ? { result: input.result } : {}),
+    },
+  };
+  await plugin["tool.execute.after"]({
+    tool: input?.tool ?? input?.toolName,
+    sessionID: input?.sessionID,
+    callID: input?.callID ?? "test-call",
+    args: input?.args || {},
+  }, output);
+  return { ...input, output };
 }
 
 async function runToolExecuteAfterHookWithOutput(plugin, input) {
   const output = await runToolExecuteAfterHook(plugin, input);
+  const textOutput = typeof output?.output?.output === "string" ? output.output.output : "";
   return {
     output,
-    advisoryTextParts: Array.isArray(output?.output?.parts)
-      ? output.output.parts.filter((part) => part?.type === "text" && typeof part?.text === "string").map((part) => part.text)
-      : [],
-    advisoryMetadata: output?.metadata?.advisory_cleanup_preview ?? null,
+    advisoryTextParts: textOutput ? [textOutput] : [],
+    advisoryMetadata: output?.output?.metadata?.advisory_cleanup_preview ?? null,
   };
 }
 
 async function runCommandExecuteBeforeHook(plugin, input) {
-  return plugin.hooks["command.execute.before"](input);
+  const output = { parts: input?.output?.parts || [] };
+  await plugin["command.execute.before"]({
+    command: typeof input?.command === "string" ? input.command : input?.command?.name,
+    sessionID: input?.sessionID ?? "test-session",
+    arguments: input?.arguments ?? "",
+  }, output);
+  return { ...input, output };
 }
 
 async function runExperimentalChatSystemTransformHook(plugin, input) {
-  return plugin.hooks["experimental.chat.system.transform"](input);
+  const output = {
+    system: typeof input?.system === "string" ? [input.system] : Array.isArray(input?.system) ? [...input.system] : [],
+  };
+  await plugin["experimental.chat.system.transform"]({
+    sessionID: input?.sessionID,
+    model: input?.model ?? { id: "test-model" },
+  }, output);
+  return { ...input, system: output.system.join("\n\n") };
 }
 
 async function createHandoffArtifact(repoPath, sessionID, handoffID, payload = {}) {

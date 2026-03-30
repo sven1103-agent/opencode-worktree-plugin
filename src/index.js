@@ -163,6 +163,8 @@ export const __internal = {
   hasOpaqueRepoRootAbsoluteReference,
 };
 
+export const pluginID = "@sven1103/opencode-worktree-workflow";
+
 export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
   const service = createWorktreeWorkflowService({
     directory,
@@ -170,14 +172,14 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     stateStore: createRuntimeStateStore(),
   });
 
-  async function onToolExecuteBefore(input) {
-    const toolName = input?.tool?.name ?? input?.toolName;
-    const args = input?.args || {};
+  async function onToolExecuteBefore(input, output) {
+    const toolName = input?.tool;
+    const args = output?.args || {};
     const classification = classifyToolExecution({ toolName, args });
-    if (classification.bypass) return input;
+    if (classification.bypass) return;
     const rewritePolicy = getToolRewritePolicy({ toolName });
 
-    const sessionID = input?.sessionID ?? input?.context?.sessionID;
+    const sessionID = input?.sessionID;
     let binding = null;
 
     if (classification.requiresIsolation) {
@@ -199,7 +201,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       if (activeTask?.worktree_path) binding = { repoRoot, task: activeTask };
     }
 
-    if (!binding) return input;
+    if (!binding) return;
 
     if (toolName === "task") {
       const handoffPath = resolveSafeHandoffPath({
@@ -212,13 +214,11 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       }
       const workspaceContext = buildWorkspaceContext({ task: binding.task, workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }) });
       await enrichHandoffArtifact(handoffPath, workspaceContext);
-      return {
-        ...input,
-        args: {
-          ...args,
-          prompt: `${args.prompt}\n\nWorkspace binding:\n- task_id: ${workspaceContext.task_id}\n- worktree_path: ${workspaceContext.worktree_path}\n- workspace_role: ${workspaceContext.workspace_role}`,
-        },
+      output.args = {
+        ...args,
+        prompt: `${args.prompt}\n\nWorkspace binding:\n- task_id: ${workspaceContext.task_id}\n- worktree_path: ${workspaceContext.worktree_path}\n- workspace_role: ${workspaceContext.workspace_role}`,
       };
+      return;
     }
 
     const nextArgs = { ...args };
@@ -239,15 +239,15 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       }
     }
 
-    return { ...input, args: nextArgs };
+    output.args = nextArgs;
   }
 
-  async function onToolExecuteAfter(input) {
-    const toolName = input?.tool?.name ?? input?.toolName;
+  async function onToolExecuteAfter(input, output) {
+    const toolName = input?.tool;
     const args = input?.args || {};
-    const sessionID = input?.sessionID ?? input?.context?.sessionID;
+    const sessionID = input?.sessionID;
     if (toolName === "worktree_prepare" && sessionID) {
-      const result = input?.metadata?.result ?? input?.result;
+      const result = output?.metadata?.result;
       if (result?.branch && result?.worktree_path) {
         const repoRoot = await service.getRepoRoot();
         await service.updateStateForPrepare(repoRoot, sessionID, result, "manual");
@@ -273,21 +273,14 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
             });
             if (persisted && lifecycle.signal === "complete") {
               try {
-                const advisory = await service.buildCleanupAdvisoryPreview({ repoRoot, activeWorktree: input?.context?.worktree ?? input?.worktree ?? directory });
-                const parts = Array.isArray(input?.output?.parts) ? [...input.output.parts] : [];
-                parts.push({ type: "text", text: advisory.message });
+                const advisory = await service.buildCleanupAdvisoryPreview({ repoRoot, activeWorktree: directory });
                 await service.recordToolUsage({ sessionID });
-                return {
-                  ...input,
-                  output: {
-                    ...(input?.output && typeof input.output === "object" ? input.output : {}),
-                    parts,
-                  },
-                  metadata: {
-                    ...(input?.metadata && typeof input.metadata === "object" ? input.metadata : {}),
-                    advisory_cleanup_preview: advisory,
-                  },
+                output.output = output.output ? `${output.output}\n\n${advisory.message}` : advisory.message;
+                output.metadata = {
+                  ...(output?.metadata && typeof output.metadata === "object" ? output.metadata : {}),
+                  advisory_cleanup_preview: advisory,
                 };
+                return;
               } catch {
                 // Advisory preview is non-fatal.
               }
@@ -299,53 +292,39 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       }
     }
     if (sessionID) await service.recordToolUsage({ sessionID });
-    return input;
   }
 
-  async function onCommandExecuteBefore(input) {
-    const commandName = input?.command?.name ?? input?.name;
-    const normalizedName = typeof commandName === "string" ? commandName.replace(/^\//, "") : "";
-    if (normalizedName !== "wt-new" && normalizedName !== "wt-clean") return input;
+  async function onCommandExecuteBefore(input, output) {
+    const normalizedName = typeof input?.command === "string" ? input.command.replace(/^\//, "") : "";
+    if (normalizedName !== "wt-new" && normalizedName !== "wt-clean") return;
 
-    const argsText = typeof input?.arguments === "string" ? input.arguments : typeof input?.args === "string" ? input.args : "";
+    const argsText = typeof input?.arguments === "string" ? input.arguments : "";
     const parts = normalizedName === "wt-new" ? buildWtNewCommandPromptParts(argsText) : buildWtCleanCommandPromptParts(argsText);
-
-    return {
-      ...input,
-      output: {
-        ...(input?.output && typeof input.output === "object" ? input.output : {}),
-        parts,
-      },
-    };
+    output.parts = parts;
   }
 
-  async function onExperimentalChatSystemTransform(input) {
-    const sessionID = input?.sessionID ?? input?.context?.sessionID;
-    const existingSystem = typeof input?.system === "string" ? input.system : "";
-    if (!sessionID || existingSystem.includes(WORKSPACE_SYSTEM_CONTEXT_MARKER)) return input;
+  async function onExperimentalChatSystemTransform(input, output) {
+    const sessionID = input?.sessionID;
+    const existingSystem = Array.isArray(output?.system) ? output.system : [];
+    if (!sessionID || existingSystem.some((entry) => entry.includes(WORKSPACE_SYSTEM_CONTEXT_MARKER))) return;
 
     const repoRoot = await service.getRepoRoot();
     const { activeTask } = await service.getSessionBinding({ repoRoot, sessionID });
-    if (!activeTask?.worktree_path) return input;
+    if (!activeTask?.worktree_path) return;
 
     const workspaceContext = buildWorkspaceContext({
       task: activeTask,
       workspaceRole: activeTask.workspace_role,
     });
     const injected = formatWorkspaceSystemContext(workspaceContext);
-    return {
-      ...input,
-      system: existingSystem ? `${existingSystem}\n\n${injected}` : injected,
-    };
+    output.system = [...existingSystem, injected];
   }
 
   return {
-    hooks: {
-      "command.execute.before": onCommandExecuteBefore,
-      "experimental.chat.system.transform": onExperimentalChatSystemTransform,
-      "tool.execute.before": onToolExecuteBefore,
-      "tool.execute.after": onToolExecuteAfter,
-    },
+    "command.execute.before": onCommandExecuteBefore,
+    "experimental.chat.system.transform": onExperimentalChatSystemTransform,
+    "tool.execute.before": onToolExecuteBefore,
+    "tool.execute.after": onToolExecuteAfter,
     tool: {
       worktree_prepare: tool({
         description: "Create a synced git worktree from a descriptive title",
@@ -381,4 +360,9 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
   };
 };
 
-export default WorktreeWorkflowPlugin;
+const plugin = {
+  id: pluginID,
+  server: WorktreeWorkflowPlugin,
+};
+
+export default plugin;
