@@ -12,6 +12,22 @@ To get the workflow running in a project:
 4. If you want policy guidance for when to isolate work, install the skill from [Co-shipped skill](#co-shipped-skill).
 5. If you need to understand how the local fallback works, see [CLI fallback](#cli-fallback).
 
+## Verify installation
+
+After setup, verify the surface you installed:
+
+- Plugin: confirm OpenCode exposes `worktree_prepare` and `worktree_cleanup`.
+- CLI: run `npx opencode-worktree-workflow --help`.
+- Slash commands: confirm `/wt-new <title>` and `/wt-clean` are available.
+
+Quick smoke check:
+
+```sh
+npx opencode-worktree-workflow wt-new "docs smoke check" --json
+```
+
+That should return a structured result with a `worktree_path`. For release verification before installing, see `docs/releases.md`.
+
 ## Recommended setup
 
 Install the package once:
@@ -146,11 +162,26 @@ If your setup uses installed skill files, copy the released `SKILL.md` into a `w
 ## What the plugin provides
 
 - `worktree_prepare`: create a worktree and matching branch from the latest configured base-branch commit, or the default branch when no base branch is configured
-- `worktree_cleanup`: preview all connected worktrees against the configured base branch, auto-clean safe ones, and optionally remove selected review items
+- `worktree_cleanup`: preview connected worktrees against the configured base branch and, when explicitly applied, remove safe or selected review items
 
 This package now ships the plugin capability, a CLI fallback surface, thin slash commands, and a co-shipped policy skill.
 
 These native tools are exposed inside OpenCode after the plugin is loaded. They are not terminal commands.
+
+## Typical usage
+
+Most users only need one of these flows:
+
+1. Plugin only: use `worktree_prepare` and `worktree_cleanup` directly in OpenCode.
+2. Plugin plus slash commands: use `/wt-new <title>` to start isolated work and `/wt-clean` to preview cleanup.
+3. CLI fallback: use `npx opencode-worktree-workflow wt-new "<title>"` when native tools are unavailable.
+
+Typical manual flow:
+
+1. Create a worktree with `worktree_prepare`, `/wt-new <title>`, or `npx opencode-worktree-workflow wt-new "<title>"`.
+2. Do the task inside the returned `worktree_path`.
+3. Preview cleanup with `worktree_cleanup`, `/wt-clean`, or `npx opencode-worktree-workflow wt-clean preview`.
+4. Apply cleanup only when deletion is intentional.
 
 ## Structured contract
 
@@ -239,6 +270,20 @@ Supported settings:
 - `worktreeRoot`: destination root for new worktrees; supports `$REPO`, `$ROOT`, and `$ROOT_PARENT`
 - `cleanupMode`: default cleanup behavior, either `preview` or `apply`
 - `protectedBranches`: branches that should never be auto-cleaned
+
+## Uninstall
+
+Remove only the surfaces you installed:
+
+- npm package: `npm remove @sven1103/opencode-worktree-workflow`
+- OpenCode plugin entry: remove `@sven1103/opencode-worktree-workflow` from `opencode.json`
+- Slash commands: delete `wt-new.md` and `wt-clean.md` from `.opencode/commands/` or `~/.config/opencode/commands/`
+- Skill: delete `SKILL.md` from your `worktree-workflow/` skill folder
+
+Optional cleanup:
+
+- remove `.opencode/worktree-workflow.json` if you created it only for this plugin
+- remove persisted runtime state from `OPENCODE_WORKTREE_STATE_DIR` or the platform default state directory if you no longer want stored task bindings
 
 ## Publish workflow
 
