@@ -51,6 +51,18 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run tests
+        run: npm test
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-linux-x64@1.3.7
+
+      - name: Resolve OpenCode binary path
+        run: echo "OPENCODE_BIN=$(npm root -g)/opencode-linux-x64/bin/opencode" >> "$GITHUB_ENV"
+
+      - name: Run smoke test
+        run: npm run test:smoke
+
       - name: Pack dry run
         run: npm pack --dry-run
 
