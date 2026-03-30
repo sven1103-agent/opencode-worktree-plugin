@@ -226,6 +226,66 @@ function buildCleanupPreviewResult({ defaultBranch, baseBranch, baseRef, grouped
   };
 }
 
+function withProvenanceLabel(item, provenance) {
+  if (provenance === "harness") return { ...item, provenance: "harness-managed" };
+  if (provenance === "manual") return { ...item, provenance: "manual" };
+  return { ...item, provenance: "unknown" };
+}
+
+function resolveItemProvenance(item, repoTasks) {
+  if (!Array.isArray(repoTasks) || repoTasks.length === 0) return "unknown";
+  const byPath = item.path ? repoTasks.find((task) => task?.worktree_path && path.resolve(task.worktree_path) === path.resolve(item.path)) : null;
+  const byBranch = !byPath && item.branch ? repoTasks.find((task) => task?.branch === item.branch || task?.task_id === item.branch) : null;
+  const task = byPath || byBranch;
+  return task?.created_by === "harness" || task?.created_by === "manual" ? task.created_by : "unknown";
+}
+
+function formatAdvisorySection(title, items) {
+  if (items.length === 0) return [title, "- none"];
+  const lines = [title];
+  for (const item of items) {
+    lines.push(`- ${formatWorktreeSummary(item)}: ${item.reason} (${item.provenance})`);
+  }
+  return lines;
+}
+
+function formatCleanupAdvisoryPreview({ grouped, baseBranch }) {
+  return [
+    `Cleanup advisory (preview) relative to ${baseBranch}:`,
+    "",
+    ...formatAdvisorySection("Safe candidates:", grouped.safe),
+    "",
+    ...formatAdvisorySection("Review candidates:", grouped.review),
+    "",
+    ...formatAdvisorySection("Blocked:", grouped.blocked),
+    "",
+    "No cleanup has been applied.",
+  ].join("\n");
+}
+
+function buildCleanupAdvisoryPreviewResult({ defaultBranch, baseBranch, baseRef, grouped, repoTasks }) {
+  const labeled = {
+    safe: grouped.safe.map((item) => withProvenanceLabel(item, resolveItemProvenance(item, repoTasks))),
+    review: grouped.review.map((item) => withProvenanceLabel(item, resolveItemProvenance(item, repoTasks))),
+    blocked: grouped.blocked.map((item) => withProvenanceLabel(item, resolveItemProvenance(item, repoTasks))),
+  };
+  return {
+    schema_version: RESULT_SCHEMA_VERSION,
+    ok: true,
+    mode: "preview",
+    advisory: true,
+    default_branch: defaultBranch,
+    base_branch: baseBranch,
+    base_ref: baseRef,
+    groups: {
+      safe: labeled.safe.map((item) => ({ ...toStructuredCleanupItem(item), provenance: item.provenance ?? "unknown" })),
+      review: labeled.review.map((item) => ({ ...toStructuredCleanupItem(item), provenance: item.provenance ?? "unknown" })),
+      blocked: labeled.blocked.map((item) => ({ ...toStructuredCleanupItem(item), provenance: item.provenance ?? "unknown" })),
+    },
+    message: formatCleanupAdvisoryPreview({ grouped: labeled, baseBranch }),
+  };
+}
+
 function buildCleanupApplyResult({ defaultBranch, baseBranch, baseRef, removed, failed, requestedSelectors }) {
   return {
     schema_version: RESULT_SCHEMA_VERSION,
@@ -299,6 +359,25 @@ function classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, merge
 }
 
 export function createWorktreeWorkflowService({ directory, git, stateStore }) {
+  async function computeCleanupPreview({ repoRoot, activeWorktree }) {
+    const config = await loadWorkflowConfig(repoRoot);
+    const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
+    const currentWorktree = path.resolve(activeWorktree || repoRoot);
+    const entries = parseWorktreeList((await git(["worktree", "list", "--porcelain"], { cwd: repoRoot })).stdout);
+    const protectedBranches = new Set([defaultBranch, baseBranch, ...config.protectedBranches]);
+    const grouped = { safe: [], review: [], blocked: [] };
+    for (const entry of entries) {
+      let mergedIntoBase = false;
+      if (entry.branch && !entry.detached) {
+        const merged = await git(["merge-base", "--is-ancestor", entry.branch, baseRef], { cwd: repoRoot, allowFailure: true });
+        mergedIntoBase = merged.exitCode === 0;
+      }
+      const classified = classifyEntry(entry, repoRoot, currentWorktree, protectedBranches, mergedIntoBase);
+      grouped[classified.status].push(classified);
+    }
+    return { defaultBranch, baseBranch, baseRef, grouped };
+  }
+
   async function getRepoRoot() {
     try {
       return (await git(["rev-parse", "--show-toplevel"], { cwd: directory })).stdout;
@@ -472,24 +551,41 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     await stateStore.saveSessionState(repoRoot, sessionID, next);
   }
 
+  async function recordTaskLifecycleSignal({ repoRoot, sessionID, taskID, worktreePath, signal }) {
+    if (!stateStore || !sessionID || !repoRoot) return null;
+    const nextStatus = inferTaskLifecycleTransition({ explicitSignal: signal });
+    if (nextStatus !== "completed" && nextStatus !== "blocked") return null;
+    let state = await stateStore.loadSessionState(repoRoot, sessionID);
+    const byID = taskID ? stateStore.findTaskByID(state, taskID) : null;
+    const byPath = !byID && worktreePath ? stateStore.findTaskByWorktreePath(state, worktreePath) : null;
+    const current = byID || byPath;
+    if (!current) return null;
+    state = stateStore.upsertTask(state, {
+      task_id: current.task_id,
+      branch: current.branch,
+      worktree_path: current.worktree_path,
+      created_by: current.created_by || "manual",
+      status: nextStatus,
+    });
+    if (stateStore.getActiveTask(state) === current.task_id) {
+      state = stateStore.setActiveTask(state, null);
+    }
+    await stateStore.saveSessionState(repoRoot, sessionID, state);
+    return { task_id: current.task_id, status: nextStatus };
+  }
+
+  async function buildCleanupAdvisoryPreview({ repoRoot, activeWorktree }) {
+    const preview = await computeCleanupPreview({ repoRoot, activeWorktree });
+    const repoTasks = stateStore ? await stateStore.listRepoTasks(repoRoot) : [];
+    return buildCleanupAdvisoryPreviewResult({ ...preview, repoTasks });
+  }
+
   async function cleanup({ mode, raw, selectors = [], worktree, sessionID }) {
     const repoRoot = await getRepoRoot();
     const config = await loadWorkflowConfig(repoRoot);
     const normalizedArgs = normalizeCleanupArgs({ mode, raw, selectors }, config);
-    const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
     const activeWorktree = path.resolve(worktree || repoRoot);
-    const entries = parseWorktreeList((await git(["worktree", "list", "--porcelain"], { cwd: repoRoot })).stdout);
-    const protectedBranches = new Set([defaultBranch, baseBranch, ...config.protectedBranches]);
-    const grouped = { safe: [], review: [], blocked: [] };
-    for (const entry of entries) {
-      let mergedIntoBase = false;
-      if (entry.branch && !entry.detached) {
-        const merged = await git(["merge-base", "--is-ancestor", entry.branch, baseRef], { cwd: repoRoot, allowFailure: true });
-        mergedIntoBase = merged.exitCode === 0;
-      }
-      const classified = classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, mergedIntoBase);
-      grouped[classified.status].push(classified);
-    }
+    const { defaultBranch, baseBranch, baseRef, grouped } = await computeCleanupPreview({ repoRoot, activeWorktree });
     if (normalizedArgs.mode !== "apply") return buildCleanupPreviewResult({ defaultBranch, baseBranch, baseRef, grouped });
     const requestedSelectors = [...new Set(normalizedArgs.selectors || [])];
     const selected = [];
@@ -530,12 +626,23 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     return result;
   }
 
-  return { prepare, cleanup, getRepoRoot, getSessionBinding, ensureActiveWorktree, recordToolUsage, updateStateForPrepare };
+  return {
+    prepare,
+    cleanup,
+    getRepoRoot,
+    getSessionBinding,
+    ensureActiveWorktree,
+    recordToolUsage,
+    recordTaskLifecycleSignal,
+    buildCleanupAdvisoryPreview,
+    updateStateForPrepare,
+  };
 }
 
 export const __internalService = {
   RESULT_SCHEMA_VERSION,
   buildCleanupApplyResult,
+  buildCleanupAdvisoryPreviewResult,
   buildCleanupPreviewResult,
   buildPrepareResult,
   classifyEntry,

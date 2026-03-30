@@ -80,6 +80,60 @@ async function enrichHandoffArtifact(filePath, workspaceContext) {
   await fs.writeFile(filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
 
+async function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function inferLifecycleSignalFromResultArtifact(resultArtifact) {
+  const status = typeof resultArtifact?.status === "string" ? resultArtifact.status : "";
+  const resultType = typeof resultArtifact?.result_type === "string" ? resultArtifact.result_type : "";
+  if (status === "blocked" || resultType === "blocked") return "block";
+  if (status === "done" || resultType === "implementation_summary") return "complete";
+  return null;
+}
+
+async function resolveTaskResultLifecycleSignal(handoffPath) {
+  const handoff = await readJsonIfExists(handoffPath);
+  if (!handoff || typeof handoff !== "object") return null;
+  const handoffID = typeof handoff.handoff_id === "string" ? handoff.handoff_id : null;
+  if (!handoffID) return null;
+  const sessionDir = path.dirname(path.dirname(handoffPath));
+  const resultsDir = path.join(sessionDir, "results");
+  let resultFiles = [];
+  try {
+    resultFiles = await fs.readdir(resultsDir);
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  const candidates = [];
+  for (const fileName of resultFiles) {
+    if (!fileName.endsWith(".json")) continue;
+    const filePath = path.join(resultsDir, fileName);
+    const artifact = await readJsonIfExists(filePath);
+    if (!artifact || artifact.source_handoff_id !== handoffID) continue;
+    const signal = inferLifecycleSignalFromResultArtifact(artifact);
+    if (!signal) continue;
+    candidates.push({ filePath, artifact, signal });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const aCreated = typeof a.artifact?.created_at === "string" ? a.artifact.created_at : "";
+    const bCreated = typeof b.artifact?.created_at === "string" ? b.artifact.created_at : "";
+    return aCreated.localeCompare(bCreated);
+  });
+  const latest = candidates[candidates.length - 1];
+  return {
+    signal: latest.signal,
+    handoff,
+    result_artifact_path: latest.filePath,
+  };
+}
+
 export const __internal = {
   RESULT_SCHEMA_VERSION: __internalService.RESULT_SCHEMA_VERSION,
   ...__internalService,
@@ -178,12 +232,58 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
 
   async function onToolExecuteAfter(input) {
     const toolName = input?.tool?.name ?? input?.toolName;
+    const args = input?.args || {};
     const sessionID = input?.sessionID ?? input?.context?.sessionID;
     if (toolName === "worktree_prepare" && sessionID) {
       const result = input?.metadata?.result ?? input?.result;
       if (result?.branch && result?.worktree_path) {
         const repoRoot = await service.getRepoRoot();
         await service.updateStateForPrepare(repoRoot, sessionID, result, "manual");
+      }
+    }
+    if (toolName === "task" && sessionID) {
+      const repoRoot = await service.getRepoRoot();
+      const handoffPath = resolveSafeHandoffPath({
+        rawPath: extractHandoffArtifactPath(args.prompt),
+        repoRoot,
+        directory,
+      });
+      if (handoffPath) {
+        try {
+          const lifecycle = await resolveTaskResultLifecycleSignal(handoffPath);
+          if (lifecycle?.signal) {
+            const persisted = await service.recordTaskLifecycleSignal({
+              repoRoot,
+              sessionID,
+              taskID: lifecycle.handoff?.payload?.task_id,
+              worktreePath: lifecycle.handoff?.payload?.worktree_path,
+              signal: lifecycle.signal,
+            });
+            if (persisted && lifecycle.signal === "complete") {
+              try {
+                const advisory = await service.buildCleanupAdvisoryPreview({ repoRoot, activeWorktree: input?.context?.worktree ?? input?.worktree ?? directory });
+                const parts = Array.isArray(input?.output?.parts) ? [...input.output.parts] : [];
+                parts.push({ type: "text", text: advisory.message });
+                await service.recordToolUsage({ sessionID });
+                return {
+                  ...input,
+                  output: {
+                    ...(input?.output && typeof input.output === "object" ? input.output : {}),
+                    parts,
+                  },
+                  metadata: {
+                    ...(input?.metadata && typeof input.metadata === "object" ? input.metadata : {}),
+                    advisory_cleanup_preview: advisory,
+                  },
+                };
+              } catch {
+                // Advisory preview is non-fatal.
+              }
+            }
+          }
+        } catch {
+          // Artifact correlation/lifecycle inference is non-fatal.
+        }
       }
     }
     if (sessionID) await service.recordToolUsage({ sessionID });

@@ -159,6 +159,42 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
     return filePath;
   }
 
+  async function listRepoSessionStates(repoRoot) {
+    const sessionsDir = path.join(stateDir, "sessions");
+    const normalizedRepoRoot = path.resolve(repoRoot);
+    try {
+      const files = await fs.readdir(sessionsDir);
+      const states = [];
+      for (const fileName of files) {
+        if (!fileName.endsWith(".json")) continue;
+        const filePath = path.join(sessionsDir, fileName);
+        try {
+          const raw = await fs.readFile(filePath, "utf8");
+          const parsed = JSON.parse(raw);
+          const parsedRepoRoot = typeof parsed?.repo_root === "string" ? path.resolve(parsed.repo_root) : null;
+          if (parsedRepoRoot !== normalizedRepoRoot) continue;
+          const sessionID = typeof parsed?.session_id === "string" && parsed.session_id ? parsed.session_id : fileName.replace(/\.json$/, "");
+          states.push(normalizeLoadedState(parsed, normalizedRepoRoot, sessionID));
+        } catch {
+          continue;
+        }
+      }
+      return states;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  async function listRepoTasks(repoRoot) {
+    const states = await listRepoSessionStates(repoRoot);
+    return states.flatMap((state) => {
+      const activeTaskID = state?.active_task_id ?? null;
+      const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
+      return tasks.map((task) => ({ ...task, session_id: state.session_id, active: task?.task_id === activeTaskID }));
+    });
+  }
+
   function getActiveTask(state) {
     return state?.active_task_id ?? null;
   }
@@ -249,6 +285,8 @@ export function createRuntimeStateStore({ stateDir = defaultStateDir(), now = ()
     stateDir,
     loadSessionState,
     saveSessionState,
+    listRepoSessionStates,
+    listRepoTasks,
     getActiveTask,
     getActiveTaskRecord,
     findTaskByID,
