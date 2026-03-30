@@ -25,6 +25,18 @@ function publishStructuredResult(context, result) {
   return result.message || JSON.stringify(result, null, 2);
 }
 
+const WORKSPACE_SYSTEM_CONTEXT_MARKER = "Active workspace context:";
+
+function formatWorkspaceSystemContext(workspaceContext) {
+  return [
+    WORKSPACE_SYSTEM_CONTEXT_MARKER,
+    `- task_id: ${workspaceContext.task_id}`,
+    `- task_title: ${workspaceContext.task_title}`,
+    `- worktree_path: ${workspaceContext.worktree_path}`,
+    "Policy: operate within this worktree for repository actions.",
+  ].join("\n");
+}
+
 function createGitRunner($, directory) {
   return async function git(args, options = {}) {
     const cwd = options.cwd ?? directory;
@@ -307,9 +319,30 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
     };
   }
 
+  async function onExperimentalChatSystemTransform(input) {
+    const sessionID = input?.sessionID ?? input?.context?.sessionID;
+    const existingSystem = typeof input?.system === "string" ? input.system : "";
+    if (!sessionID || existingSystem.includes(WORKSPACE_SYSTEM_CONTEXT_MARKER)) return input;
+
+    const repoRoot = await service.getRepoRoot();
+    const { activeTask } = await service.getSessionBinding({ repoRoot, sessionID });
+    if (!activeTask?.worktree_path) return input;
+
+    const workspaceContext = buildWorkspaceContext({
+      task: activeTask,
+      workspaceRole: activeTask.workspace_role,
+    });
+    const injected = formatWorkspaceSystemContext(workspaceContext);
+    return {
+      ...input,
+      system: existingSystem ? `${existingSystem}\n\n${injected}` : injected,
+    };
+  }
+
   return {
     hooks: {
       "command.execute.before": onCommandExecuteBefore,
+      "experimental.chat.system.transform": onExperimentalChatSystemTransform,
       "tool.execute.before": onToolExecuteBefore,
       "tool.execute.after": onToolExecuteAfter,
     },
