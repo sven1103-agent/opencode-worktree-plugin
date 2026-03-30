@@ -51,7 +51,9 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:smoke": "node --test test/integration/*.test.js",
+    "test:smoke:published": "node --test test/integration/*.test.js"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.3.0",
