@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { createRuntimeStateStore } from "../src/runtime/state-store.js";
-import { createPlugin, createRemoteRepo, executeToolWithMetadata, git, runCommandExecuteBeforeHook, runToolExecuteAfterHook, runToolExecuteBeforeHook } from "../test-support/helpers.js";
+import { createPlugin, createRemoteRepo, executeToolWithMetadata, git, runCommandExecuteBeforeHook, runExperimentalChatSystemTransformHook, runToolExecuteAfterHook, runToolExecuteBeforeHook } from "../test-support/helpers.js";
 
 test("tool.execute.before provisions worktree and rewrites mutating filePath", async () => {
   const fixture = await createRemoteRepo();
@@ -279,6 +279,77 @@ test("tool.execute.before does not rewrite absolute sibling-prefix paths", async
     });
 
     assert.equal(output.args.filePath, siblingPath);
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
+test("experimental.chat.system.transform leaves system unchanged without active binding", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const input = { system: "Base system prompt", sessionID: "hook-session-system-no-binding" };
+    const output = await runExperimentalChatSystemTransformHook(plugin, input);
+
+    assert.equal(output.system, input.system);
+    await assert.rejects(fs.readdir(path.join(fixture.stateDir, "sessions")), /ENOENT/);
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
+test("experimental.chat.system.transform injects active task/worktree context", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    await runToolExecuteBeforeHook(plugin, {
+      toolName: "write",
+      args: { filePath: "tracked.txt" },
+      sessionID: "hook-session-system-with-binding",
+    });
+
+    const output = await runExperimentalChatSystemTransformHook(plugin, {
+      system: "Base system prompt",
+      sessionID: "hook-session-system-with-binding",
+    });
+
+    assert.match(output.system, /Active workspace context:/);
+    assert.match(output.system, /task_id:/);
+    assert.match(output.system, /worktree_path:/);
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
+test("experimental.chat.system.transform avoids duplicate injection", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    await runToolExecuteBeforeHook(plugin, {
+      toolName: "write",
+      args: { filePath: "tracked.txt" },
+      sessionID: "hook-session-system-dedupe",
+    });
+
+    const once = await runExperimentalChatSystemTransformHook(plugin, {
+      system: "Base system prompt",
+      sessionID: "hook-session-system-dedupe",
+    });
+    const twice = await runExperimentalChatSystemTransformHook(plugin, once);
+
+    assert.equal(twice.system, once.system);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();

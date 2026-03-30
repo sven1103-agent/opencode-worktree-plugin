@@ -154,6 +154,10 @@ async function runCommandExecuteBeforeHook(plugin, input) {
   return plugin.hooks["command.execute.before"](input);
 }
 
+async function runExperimentalChatSystemTransformHook(plugin, input) {
+  return plugin.hooks["experimental.chat.system.transform"](input);
+}
+
 async function createHandoffArtifact(repoPath, sessionID, handoffID, payload = {}) {
   const handoffPath = path.join(repoPath, ".opencode", "sessions", sessionID, "handoffs", `${handoffID}.json`);
   await writeFile(
@@ -217,6 +221,7 @@ export {
   runToolExecuteAfterHook,
   runToolExecuteAfterHookWithOutput,
   runCommandExecuteBeforeHook,
+  runExperimentalChatSystemTransformHook,
   runToolExecuteBeforeHook,
   runTaskDelegationHook,
   withStateDirEnv,
