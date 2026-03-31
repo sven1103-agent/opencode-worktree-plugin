@@ -8,14 +8,15 @@ import { createPlugin, createRemoteRepo, executeToolWithMetadata, git, runComman
 
 test("tool.execute.before provisions worktree and rewrites mutating filePath", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs, logLevel: "debug" });
     const output = await runToolExecuteBeforeHook(plugin, {
       toolName: "write",
-      args: { filePath: "tracked.txt" },
+      args: { filePath: "tracked.txt", subagent_type: "implementer" },
       sessionID: "hook-session-1",
     });
 
@@ -24,9 +25,13 @@ test("tool.execute.before provisions worktree and rewrites mutating filePath", a
     const store = createRuntimeStateStore({ stateDir: fixture.stateDir });
     const state = await store.loadSessionState(repoRoot, "hook-session-1");
     assert.equal(state.tasks[0].created_by, "harness");
+    assert.equal(state.tasks[0].workspace_role, "implementer");
     const sessionsDir = path.join(fixture.stateDir, "sessions");
     const files = await fs.readdir(sessionsDir);
     assert.equal(files.length, 1);
+    assert.equal(logs.some((entry) => entry.event === "session_binding_created"), true);
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_applied" && entry.level === "info"), true);
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_applied" && entry.level === "debug"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();
@@ -35,17 +40,19 @@ test("tool.execute.before provisions worktree and rewrites mutating filePath", a
 
 test("tool.execute.before keeps read-only tools in repo root", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const output = await runToolExecuteBeforeHook(plugin, {
       toolName: "read",
       args: { filePath: "tracked.txt" },
       sessionID: "hook-session-2",
     });
     assert.equal(output.args.filePath, "tracked.txt");
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_skipped" && entry.reason === "no-active-binding"), true);
     await assert.rejects(fs.readdir(path.join(fixture.stateDir, "sessions")), /ENOENT/);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
@@ -55,11 +62,12 @@ test("tool.execute.before keeps read-only tools in repo root", async () => {
 
 test("tool.execute.before rewrites read-only structured args when active binding exists", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     await runToolExecuteBeforeHook(plugin, {
       toolName: "write",
       args: { filePath: "tracked.txt" },
@@ -72,6 +80,7 @@ test("tool.execute.before rewrites read-only structured args when active binding
       sessionID: "hook-session-read-rewrite",
     });
     assert.notEqual(output.args.filePath, path.join(repoRoot, "tracked.txt"));
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_applied"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();
@@ -93,8 +102,9 @@ test("tool.execute.before blocks mutating call without sessionID", async () => {
 
 test("tool.execute.before blocks opaque repo-root paths in bash command", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const repoRoot = await git(fixture.repoPath, ["rev-parse", "--show-toplevel"]);
     await assert.rejects(
       runToolExecuteBeforeHook(plugin, {
@@ -104,6 +114,7 @@ test("tool.execute.before blocks opaque repo-root paths in bash command", async 
       }),
       /cannot be safely rewritten/i,
     );
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_skipped" && entry.reason === "opaque-repo-root-reference"), true);
   } finally {
     await fixture.cleanup();
   }
@@ -265,11 +276,12 @@ test("tool.execute.before does not provision for glob/grep without binding", asy
 
 test("tool.execute.before does not rewrite absolute sibling-prefix paths", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
 
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const repoRoot = await git(fixture.repoPath, ["rev-parse", "--show-toplevel"]);
     const siblingPath = `${repoRoot}-sibling/tracked.txt`;
     const output = await runToolExecuteBeforeHook(plugin, {
@@ -279,6 +291,40 @@ test("tool.execute.before does not rewrite absolute sibling-prefix paths", async
     });
 
     assert.equal(output.args.filePath, siblingPath);
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_skipped" && entry.reason === "outside-repo-root"), true);
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
+test("tool.execute.before reports already-in-worktree rewrite skip", async () => {
+  const fixture = await createRemoteRepo();
+  const logs = [];
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
+    await runToolExecuteBeforeHook(plugin, {
+      toolName: "write",
+      args: { filePath: "tracked.txt" },
+      sessionID: "hook-session-already-in-worktree",
+    });
+    const repoRoot = await git(fixture.repoPath, ["rev-parse", "--show-toplevel"]);
+    const store = createRuntimeStateStore({ stateDir: fixture.stateDir });
+    const state = await store.loadSessionState(repoRoot, "hook-session-already-in-worktree");
+    const worktreePath = state.tasks[0].worktree_path;
+    const inWorktreePath = path.join(worktreePath, "tracked.txt");
+
+    const output = await runToolExecuteBeforeHook(plugin, {
+      toolName: "write",
+      args: { filePath: inWorktreePath },
+      sessionID: "hook-session-already-in-worktree",
+    });
+
+    assert.equal(output.args.filePath, inWorktreePath);
+    assert.equal(logs.some((entry) => entry.event === "tool_path_rewrite_skipped" && entry.reason === "already-in-worktree"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();

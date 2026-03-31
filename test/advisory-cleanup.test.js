@@ -16,10 +16,11 @@ import {
 
 test("task completion emits advisory cleanup preview and persists terminal lifecycle", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const handoffPath = await createHandoffArtifact(fixture.repoPath, "session-advisory-1", "handoff-1");
     const delegated = await runTaskDelegationHook(plugin, {
       sessionID: "session-advisory-1",
@@ -43,6 +44,7 @@ test("task completion emits advisory cleanup preview and persists terminal lifec
     const state = await store.loadSessionState(repoRoot, "session-advisory-1");
     assert.equal(state.active_task_id, null);
     assert.equal(state.tasks[0].status, "completed");
+    assert.equal(logs.some((entry) => entry.event === "session_binding_cleared" && entry.reason === "completed"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();
@@ -135,10 +137,11 @@ test("advisory preview marks unknown provenance for unmanaged candidates", async
 
 test("advisory preview failures are non-fatal", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const handoffPath = await createHandoffArtifact(fixture.repoPath, "session-advisory-5", "handoff-5");
     const delegated = await runTaskDelegationHook(plugin, {
       sessionID: "session-advisory-5",
@@ -156,6 +159,7 @@ test("advisory preview failures are non-fatal", async () => {
 
     assert.equal(output.output?.toolName, "task");
     assert.equal(output.advisoryMetadata, null);
+    assert.equal(logs.some((entry) => entry.event === "nonfatal_plugin_error" && entry.stage === "task_advisory_cleanup_preview"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();
@@ -164,10 +168,11 @@ test("advisory preview failures are non-fatal", async () => {
 
 test("malformed result artifact is non-fatal in task after-hook", async () => {
   const fixture = await createRemoteRepo();
+  const logs = [];
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
   process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
   try {
-    const plugin = await createPlugin(fixture.repoPath);
+    const plugin = await createPlugin(fixture.repoPath, { captureLogs: logs });
     const handoffPath = await createHandoffArtifact(fixture.repoPath, "session-advisory-6", "handoff-6");
     const delegated = await runTaskDelegationHook(plugin, {
       sessionID: "session-advisory-6",
@@ -186,6 +191,7 @@ test("malformed result artifact is non-fatal in task after-hook", async () => {
     assert.equal(output.output?.toolName, "task");
     assert.equal(output.advisoryMetadata, null);
     assert.equal(output.advisoryTextParts.length, 0);
+    assert.equal(logs.some((entry) => entry.event === "nonfatal_plugin_error" && entry.stage === "task_lifecycle_inference"), true);
   } finally {
     process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
     await fixture.cleanup();

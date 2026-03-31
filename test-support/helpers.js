@@ -109,10 +109,30 @@ async function createRemoteRepo() {
   };
 }
 
-async function createPlugin(repoPath) {
+function createMemoryDecisionLogger(captureLogs, logLevel = "debug") {
+  const rank = logLevel === "debug" ? 2 : logLevel === "info" ? 1 : 0;
+  function emit(level, event, fields = {}) {
+    if (rank === 0) return;
+    if (rank === 1 && level === "debug") return;
+    captureLogs.push({ level, event, ...fields });
+  }
+  return {
+    info(event, fields = {}) {
+      emit("info", event, fields);
+    },
+    debug(event, fields = {}) {
+      emit("debug", event, fields);
+    },
+  };
+}
+
+async function createPlugin(repoPath, options = {}) {
+  const { logLevel, captureLogs } = options;
+  const logger = Array.isArray(captureLogs) ? createMemoryDecisionLogger(captureLogs, logLevel || "debug") : null;
   return pluginModule.server({
     $: createShell(repoPath),
     directory: repoPath,
+    ...(logger ? { logger } : {}),
   });
 }
 
