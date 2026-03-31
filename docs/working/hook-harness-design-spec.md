@@ -8,6 +8,17 @@ This document defines a deterministic worktree harness for OpenCode using plugin
 
 The current worktree workflow relies on skills and orchestrator prompts to convince agents to call `worktree_prepare` and `worktree_cleanup` at the right time. That behavior is not reliable enough because skills are still prompt text, and agents can skip or misapply them. The result is nondeterministic workspace selection and inconsistent cleanup behavior.
 
+## Validated Runtime Constraints
+
+Validation against current OpenCode runtime behavior showed an important host boundary:
+
+- `tool.execute.before` does fire for built-in tools
+- hook payload mutation is only reliable when mutating the existing object in place
+- replacing `output.args` or `output.parts` wholesale is not a safe assumption
+- the documented plugin model is centered on the host-selected `worktree`, not on plugins acting as a general multi-worktree router for every built-in tool
+
+This means the harness can still use hooks as an enforcement layer, but only for capabilities it can actually control. Transparent routing of all built-in tools across multiple task worktrees is not a host-guaranteed primitive today.
+
 ## Goals
 
 - Make worktree creation deterministic for non-trivial editable work.
@@ -16,6 +27,7 @@ The current worktree workflow relies on skills and orchestrator prompts to convi
 - Keep the primary orchestrator as the only authority that can create, switch, fork, or cleanup-manage worktrees.
 - Keep the skill policy-oriented and move enforcement into plugin hooks.
 - Keep the existing `worktree_prepare` and `worktree_cleanup` tool contract as the public capability surface.
+- Preserve an enforceable routing story for mutating work even if OpenCode does not provide a fully general built-in tool redirection contract.
 
 ## Non-Goals
 
@@ -73,6 +85,8 @@ Recommended OpenCode hooks:
 - `tool.execute.after`: state updates and advisory signaling
 - `command.execute.before`: slash-command normalization and parity
 - `experimental.chat.system.transform`: model-facing context injection only
+
+Hooks remain the right place for classification, state adoption, prompt context, and live payload mutation. They should not be treated as proof that the plugin can transparently re-home every built-in tool into an arbitrary task worktree.
 
 ### Runtime State Layer
 
@@ -182,10 +196,12 @@ Responsibilities:
 - classify the call as read-only, mutating, or delegation
 - resolve task continuity
 - create or select a bound worktree if isolation is required
-- rewrite execution context and repo-scoped paths into the bound worktree
+- rewrite execution context and repo-scoped paths into the bound worktree when the runtime contract safely permits it
 - block when safe provisioning or safe rewriting is not possible
 
 This hook is the main choke point because it runs immediately before the action happens.
+
+For hard guarantees, this hook should prefer plugin-controlled execution paths over assumptions about undocumented built-in routing semantics.
 
 ### `tool.execute.after`
 
@@ -204,6 +220,8 @@ Responsibilities:
 - route `/wt-new` and `/wt-clean` through the same state model
 - keep slash commands as human UX only, not a separate control plane
 
+This hook should mutate existing prompt parts in place when possible. It should not assume replacing `output.parts` wholesale is honored by the host.
+
 ### `experimental.chat.system.transform`
 
 Responsibilities:
@@ -213,6 +231,8 @@ Responsibilities:
 - inject a concise workspace policy reminder
 
 This hook improves model behavior but is not part of enforcement.
+
+It should be treated as advisory context only, never as the mechanism that makes routing correct.
 
 ## Delegation Policy
 
@@ -287,16 +307,34 @@ Provenance should affect messaging and cleanup recommendations, but not whether 
 
 ## Path and Workdir Rewriting
 
-The harness should rewrite execution into the bound worktree by default.
+The harness should rewrite execution into the bound worktree only where the runtime contract is actually enforceable.
 
 ### Rewrite Rules
 
-- always rewrite repo-scoped workdir or cwd into the active worktree
-- always rewrite repo-scoped file paths into the active worktree
+- mutate live path-like arguments in place when the runtime exposes a stable mutable payload
+- prefer plugin-owned mutating tools when execution location must be guaranteed
+- rewrite repo-scoped workdir or cwd only when the called tool actually honors those fields as execution inputs
+- rewrite repo-scoped file paths only when the path is an explicit structured argument that can be rewritten safely
 - never rewrite clearly external absolute paths
 - block rather than guess when a path cannot be safely classified
 
-This should make workspace isolation deterministic without depending on agents to remember worktree-local paths.
+This can make parts of workspace isolation deterministic without depending on agents to remember worktree-local paths, but only for tools whose execution semantics are actually under plugin control.
+
+### Enforceable Routing Boundary
+
+The harness should distinguish three classes of execution:
+
+1. Plugin-owned tools
+2. Built-in tools with safe in-place mutable structured arguments
+3. Built-in tools whose effective execution context is owned by OpenCode
+
+For class 1, the plugin can guarantee execution in the bound task worktree.
+
+For class 2, the plugin can often steer execution by mutating the live payload in place, but must still treat that as host-contract-sensitive behavior.
+
+For class 3, the plugin may only provide context, advisory blocking, or explicit failure rather than claim transparent routing.
+
+If hard routing guarantees are required for mutating work, the plugin should own the relevant mutating tools rather than rely on undocumented built-in routing semantics.
 
 ## Privilege Model
 
@@ -421,7 +459,7 @@ This makes workspace context portable and inspectable across fresh-context subag
 
 ## Acceptance Criteria
 
-- A mutating tool call in a non-trivial task does not execute in repo root when no bound worktree exists.
+- A mutating task that requires hard workspace isolation is either routed through a plugin-controlled execution path or blocked when no safe enforcement path exists.
 - A Task-tool editable delegation causes worktree binding before delegation.
 - Planner, implementer, and reviewer reuse the same worktree for one linear task unless the orchestrator explicitly forks.
 - Manual `worktree_prepare` is adopted into managed runtime state.
@@ -429,6 +467,7 @@ This makes workspace context portable and inspectable across fresh-context subag
 - Cleanup advice appears only at defined advisory moments.
 - Provisioning or rewrite failures block execution unless the user explicitly overrides.
 - Model prompt injection improves context but is not required for enforcement correctness.
+- The plugin does not claim transparent built-in multi-worktree routing beyond what the validated host/runtime contract can enforce.
 
 ## Test Matrix
 
@@ -445,6 +484,8 @@ This makes workspace context portable and inspectable across fresh-context subag
 - rewrite ambiguity blocks execution
 - explicit override allows the scoped root fallback and is visibly recorded
 - cleanup advice fires at completion but not on every successful command
+- hook payload rewrites mutate existing `args` and `parts` objects in place
+- plugin-owned mutating tools execute against the bound task worktree
 
 ## Recommended Implementation Sequence
 
@@ -453,12 +494,13 @@ This makes workspace context portable and inspectable across fresh-context subag
 3. Implement task continuity and binding APIs.
 4. Add `tool.execute.before` enforcement.
 5. Add Task-tool delegation handling.
-6. Add repo-scoped path and workdir rewriting.
-7. Add `tool.execute.after` adoption and advisory signaling.
-8. Add `command.execute.before` parity handling.
-9. Extend the handoff schema with workspace fields.
-10. Add `experimental.chat.system.transform` context injection.
-11. Add invariant-focused tests.
+6. Add repo-scoped path and workdir rewriting for safe mutable payloads.
+7. Add plugin-owned mutating tools for hard routing guarantees.
+8. Add `tool.execute.after` adoption and advisory signaling.
+9. Add `command.execute.before` parity handling.
+10. Extend the handoff schema with workspace fields.
+11. Add `experimental.chat.system.transform` context injection.
+12. Add invariant-focused tests.
 
 ## Suggested GitHub Tracking Breakdown
 
@@ -476,7 +518,8 @@ Track the work as separate but ordered issues:
 ## Definition of Done
 
 - The harness, not the skill, is the authoritative enforcement layer for workspace isolation.
-- Orchestrated editable work reliably lands in a task-scoped worktree.
+- Orchestrated editable work reliably lands in a task-scoped worktree when routed through an enforceable plugin-controlled path.
 - Linear flows reuse one worktree by default.
 - Cleanup remains advisory-only.
 - Public tools and slash commands still work, but all paths converge on one shared lifecycle model.
+- The documented architecture clearly distinguishes advisory hook steering from plugin-owned hard routing.

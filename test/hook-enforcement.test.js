@@ -33,6 +33,30 @@ test("tool.execute.before provisions worktree and rewrites mutating filePath", a
   }
 });
 
+test("tool.execute.before mutates the existing args object in place", async () => {
+  const fixture = await createRemoteRepo();
+  const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
+  process.env.OPENCODE_WORKTREE_STATE_DIR = fixture.stateDir;
+
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const args = { filePath: "tracked.txt" };
+    const output = { args };
+
+    await plugin["tool.execute.before"]({
+      tool: "write",
+      sessionID: "hook-session-in-place-tool",
+      callID: "test-call",
+    }, output);
+
+    assert.equal(output.args, args);
+    assert.notEqual(args.filePath, "tracked.txt");
+  } finally {
+    process.env.OPENCODE_WORKTREE_STATE_DIR = previous;
+    await fixture.cleanup();
+  }
+});
+
 test("tool.execute.before keeps read-only tools in repo root", async () => {
   const fixture = await createRemoteRepo();
   const previous = process.env.OPENCODE_WORKTREE_STATE_DIR;
@@ -407,6 +431,27 @@ test("command.execute.before normalizes /wt-new and /wt-clean prompts", async ()
     assert.equal(Array.isArray(cleanResult.output.parts), true);
     assert.match(cleanResult.output.parts[0].text, /worktree_cleanup/);
     assert.match(cleanResult.output.parts[0].text, /apply wt\/task/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("command.execute.before mutates the existing parts array in place", async () => {
+  const fixture = await createRemoteRepo();
+  try {
+    const plugin = await createPlugin(fixture.repoPath);
+    const parts = [{ type: "text", text: "original" }];
+    const output = { parts };
+
+    await plugin["command.execute.before"]({
+      command: "wt-new",
+      sessionID: "test-session",
+      arguments: "In place command rewrite",
+    }, output);
+
+    assert.equal(output.parts, parts);
+    assert.match(parts[0].text, /worktree_prepare/);
+    assert.match(parts[0].text, /In place command rewrite/);
   } finally {
     await fixture.cleanup();
   }

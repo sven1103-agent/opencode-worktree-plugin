@@ -18,6 +18,7 @@ import {
   inferTaskLifecycleTransition,
   rewriteRepoScopedPathIntoWorktree,
 } from "./core/task-binding.js";
+import { createDecisionLogger } from "./runtime/decision-logger.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 function publishStructuredResult(context, result) {
@@ -165,11 +166,28 @@ export const __internal = {
 
 export const pluginID = "@sven1103/opencode-worktree-workflow";
 
+function isInsideRoot(candidatePath, rootPath) {
+  const relative = path.relative(path.resolve(rootPath), path.resolve(candidatePath));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function deriveRewriteSkipReason({ value, binding }) {
+  if (value == null || (typeof value === "string" && !value.trim())) return "arg-missing";
+  if (typeof value !== "string") return "arg-missing";
+  if (!path.isAbsolute(value)) return "arg-missing";
+  const resolved = path.resolve(value);
+  if (isInsideRoot(resolved, binding.task.worktree_path)) return "already-in-worktree";
+  if (!isInsideRoot(resolved, binding.repoRoot)) return "outside-repo-root";
+  return "arg-missing";
+}
+
 export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
+  const logger = createDecisionLogger();
   const service = createWorktreeWorkflowService({
     directory,
     git: createGitRunner($, directory),
     stateStore: createRuntimeStateStore(),
+    logger,
   });
 
   async function onToolExecuteBefore(input, output) {
@@ -187,6 +205,7 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       const repoRoot = await service.getRepoRoot();
       for (const key of rewritePolicy.opaqueArgKeys) {
         if (hasOpaqueRepoRootAbsoluteReference({ value: args[key], repoRoot })) {
+          logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason: "opaque-repo-root-reference", session_id: sessionID });
           throw new Error(`Blocked: ${toolName} ${key} includes repo-root absolute path that cannot be safely rewritten.`);
         }
       }
@@ -201,7 +220,12 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       if (activeTask?.worktree_path) binding = { repoRoot, task: activeTask };
     }
 
-    if (!binding) return;
+    if (!binding) {
+      for (const key of rewritePolicy.pathArgKeys) {
+        logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason: "no-active-binding", session_id: sessionID });
+      }
+      return;
+    }
 
     if (toolName === "task") {
       const handoffPath = resolveSafeHandoffPath({
@@ -214,32 +238,49 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       }
       const workspaceContext = buildWorkspaceContext({ task: binding.task, workspaceRole: deriveWorkspaceRole({ subagentType: args.subagent_type }) });
       await enrichHandoffArtifact(handoffPath, workspaceContext);
-      output.args = {
-        ...args,
-        prompt: `${args.prompt}\n\nWorkspace binding:\n- task_id: ${workspaceContext.task_id}\n- worktree_path: ${workspaceContext.worktree_path}\n- workspace_role: ${workspaceContext.workspace_role}`,
-      };
+      args.prompt = `${args.prompt}\n\nWorkspace binding:\n- task_id: ${workspaceContext.task_id}\n- worktree_path: ${workspaceContext.worktree_path}\n- workspace_role: ${workspaceContext.workspace_role}`;
       return;
     }
 
-    const nextArgs = { ...args };
-    if (toolName === "bash" && nextArgs.workdir == null && nextArgs.cwd == null) {
-      nextArgs.workdir = binding.task.worktree_path;
-      nextArgs.cwd = binding.task.worktree_path;
+    if (toolName === "bash" && args.workdir == null && args.cwd == null) {
+      args.workdir = binding.task.worktree_path;
+      args.cwd = binding.task.worktree_path;
     }
-    if ((toolName === "glob" || toolName === "grep") && nextArgs.path == null) {
-      nextArgs.path = binding.task.worktree_path;
+    if ((toolName === "glob" || toolName === "grep") && args.path == null) {
+      args.path = binding.task.worktree_path;
     }
     for (const key of rewritePolicy.pathArgKeys) {
-      if (key in nextArgs) {
-        nextArgs[key] = rewriteRepoScopedPathIntoWorktree({
-          value: nextArgs[key],
-          repoRoot: binding.repoRoot,
-          worktreePath: binding.task.worktree_path,
+      if (!(key in args)) {
+        logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason: "arg-missing", session_id: sessionID, task_id: binding.task.task_id });
+        continue;
+      }
+      const beforePath = args[key];
+      const rewritten = rewriteRepoScopedPathIntoWorktree({
+        value: beforePath,
+        repoRoot: binding.repoRoot,
+        worktreePath: binding.task.worktree_path,
+      });
+      args[key] = rewritten;
+      if (rewritten !== beforePath) {
+        logger.info("tool_path_rewrite_applied", { tool: toolName, arg_key: key, session_id: sessionID, task_id: binding.task.task_id });
+        logger.debug("tool_path_rewrite_applied", {
+          tool: toolName,
+          arg_key: key,
+          session_id: sessionID,
+          task_id: binding.task.task_id,
+          before_path: beforePath,
+          after_path: rewritten,
+        });
+      } else {
+        logger.info("tool_path_rewrite_skipped", {
+          tool: toolName,
+          arg_key: key,
+          reason: deriveRewriteSkipReason({ value: beforePath, binding }),
+          session_id: sessionID,
+          task_id: binding.task.task_id,
         });
       }
     }
-
-    output.args = nextArgs;
   }
 
   async function onToolExecuteAfter(input, output) {
@@ -271,8 +312,8 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
               worktreePath: lifecycle.handoff?.payload?.worktree_path,
               signal: lifecycle.signal,
             });
-            if (persisted && lifecycle.signal === "complete") {
-              try {
+              if (persisted && lifecycle.signal === "complete") {
+                try {
                 const advisory = await service.buildCleanupAdvisoryPreview({ repoRoot, activeWorktree: directory });
                 await service.recordToolUsage({ sessionID });
                 output.output = output.output ? `${output.output}\n\n${advisory.message}` : advisory.message;
@@ -280,13 +321,23 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
                   ...(output?.metadata && typeof output.metadata === "object" ? output.metadata : {}),
                   advisory_cleanup_preview: advisory,
                 };
-                return;
-              } catch {
-                // Advisory preview is non-fatal.
-              }
-            }
-          }
-        } catch {
+                  return;
+               } catch (error) {
+                 logger.info("nonfatal_plugin_error", {
+                   stage: "task_after_hook_advisory_preview",
+                   message: error instanceof Error ? error.message : String(error),
+                   session_id: sessionID,
+                 });
+                 // Advisory preview is non-fatal.
+               }
+             }
+           }
+        } catch (error) {
+          logger.info("nonfatal_plugin_error", {
+            stage: "task_after_hook_lifecycle_inference",
+            message: error instanceof Error ? error.message : String(error),
+            session_id: sessionID,
+          });
           // Artifact correlation/lifecycle inference is non-fatal.
         }
       }
@@ -300,6 +351,10 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
 
     const argsText = typeof input?.arguments === "string" ? input.arguments : "";
     const parts = normalizedName === "wt-new" ? buildWtNewCommandPromptParts(argsText) : buildWtCleanCommandPromptParts(argsText);
+    if (Array.isArray(output?.parts)) {
+      output.parts.splice(0, output.parts.length, ...parts);
+      return;
+    }
     output.parts = parts;
   }
 
@@ -317,6 +372,10 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       workspaceRole: activeTask.workspace_role,
     });
     const injected = formatWorkspaceSystemContext(workspaceContext);
+    if (Array.isArray(output?.system)) {
+      output.system.push(injected);
+      return;
+    }
     output.system = [...existingSystem, injected];
   }
 

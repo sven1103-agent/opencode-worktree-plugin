@@ -109,6 +109,28 @@ async function createRemoteRepo() {
   };
 }
 
+async function createEmptyRemoteRepo() {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "worktree-empty-remote-"));
+  const stateDir = path.join(tempRoot, "runtime-state");
+  const remotePath = path.join(tempRoot, "remote.git");
+  const repoPath = path.join(tempRoot, "repo");
+
+  await execFileAsync("git", ["init", "--bare", remotePath]);
+  await execFileAsync("git", ["clone", remotePath, repoPath]);
+  await git(repoPath, ["config", "user.email", "test@example.com"]);
+  await git(repoPath, ["config", "user.name", "Test User"]);
+  await git(repoPath, ["config", "commit.gpgsign", "false"]);
+
+  return {
+    tempRoot,
+    stateDir,
+    repoPath,
+    async cleanup() {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 async function createPlugin(repoPath) {
   return pluginModule.server({
     $: createShell(repoPath),
@@ -243,6 +265,7 @@ function withStateDirEnv(stateDir) {
 
 export {
   commitFile,
+  createEmptyRemoteRepo,
   createPlugin,
   createRemoteRepo,
   execFileAsync,

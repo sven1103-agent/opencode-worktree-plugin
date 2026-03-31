@@ -32,6 +32,18 @@ export function isMissingRemoteError(message, remote) {
   return new RegExp(`No such remote:?\\s+${remote}|does not appear to be a git repository|Could not read from remote repository`, "i").test(message);
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isPlaceholderBranchName(value) {
+  return /^\((?:unknown|none)\)$/i.test(String(value || "").trim());
+}
+
+function isMissingRemoteBranchError(message, branch) {
+  return new RegExp(`couldn't find remote ref\\s+${escapeRegExp(branch)}|remote branch\\s+${escapeRegExp(branch)}\\s+not found`, "i").test(message);
+}
+
 async function readJsonFile(filePath) {
   if (!(await pathExists(filePath))) {
     return null;
@@ -358,7 +370,7 @@ function classifyEntry(entry, repoRoot, activeWorktree, protectedBranches, merge
   return { ...item, status: "review", reason: "not merged into base branch by git ancestry", selectable: true };
 }
 
-export function createWorktreeWorkflowService({ directory, git, stateStore }) {
+export function createWorktreeWorkflowService({ directory, git, stateStore, logger = null }) {
   async function computeCleanupPreview({ repoRoot, activeWorktree }) {
     const config = await loadWorkflowConfig(repoRoot);
     const { defaultBranch, baseBranch, baseRef } = await resolveBaseTarget(repoRoot, config);
@@ -406,11 +418,16 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
   }
   async function getDefaultBranch(repoRoot, remote) {
     const remoteHead = await git(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`], { cwd: repoRoot, allowFailure: true });
-    if (remoteHead.exitCode === 0 && remoteHead.stdout.startsWith(`${remote}/`)) return remoteHead.stdout.slice(remote.length + 1);
+    if (remoteHead.exitCode === 0 && remoteHead.stdout.startsWith(`${remote}/`)) {
+      const branch = remoteHead.stdout.slice(remote.length + 1).trim();
+      if (branch && !isPlaceholderBranchName(branch)) return branch;
+    }
+    const remoteUrl = await git(["remote", "get-url", remote], { cwd: repoRoot, allowFailure: true });
     const remoteShow = await git(["remote", "show", remote], { cwd: repoRoot, allowFailure: true });
     if (remoteShow.exitCode === 0) {
       const match = remoteShow.stdout.match(/HEAD branch: (.+)/);
-      if (match?.[1]) return match[1].trim();
+      const branch = match?.[1]?.trim();
+      if (branch && !isPlaceholderBranchName(branch)) return branch;
     }
     for (const candidate of ["main", "master", "trunk", "develop"]) {
       if ((await git(["show-ref", "--verify", "--quiet", `refs/heads/${candidate}`], { cwd: repoRoot, allowFailure: true })).exitCode === 0) return candidate;
@@ -418,7 +435,10 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     }
     const currentBranch = await git(["branch", "--show-current"], { cwd: repoRoot, allowFailure: true });
     if (currentBranch.stdout) return currentBranch.stdout;
-    throw new Error("Could not determine the default branch for this repository.");
+    if (remoteUrl.exitCode !== 0) {
+      throw new Error(`Could not fetch base branch information from remote \"${remote}\". Configure the expected remote in .opencode/worktree-workflow.json or add that remote to this repository.`);
+    }
+    throw new Error(`Remote \"${remote}\" does not advertise a default branch yet, and this repository has no local branches to use as a fallback. Create and push the initial base branch, or configure \"baseBranch\" in .opencode/worktree-workflow.json once that branch exists.`);
   }
   async function resolveBaseTarget(repoRoot, config) {
     const defaultBranch = await getDefaultBranch(repoRoot, config.remote);
@@ -428,6 +448,9 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     } catch (error) {
       if (isMissingRemoteError(error.message || "", config.remote)) {
         throw new Error(`Could not fetch base branch information from remote \"${config.remote}\". Configure the expected remote in .opencode/worktree-workflow.json or add that remote to this repository.`);
+      }
+      if (isMissingRemoteBranchError(error.message || "", baseBranch)) {
+        throw new Error(`Remote \"${config.remote}\" does not have branch \"${baseBranch}\" yet. Create and push the initial base branch, or configure \"baseBranch\" in .opencode/worktree-workflow.json once that branch exists.`);
       }
       throw error;
     }
@@ -443,6 +466,7 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
   async function updateStateForPrepare(repoRoot, sessionID, prepared, createdBy = "manual", workspaceRole = "linear-flow") {
     if (!sessionID || !stateStore) return;
     const state = await stateStore.loadSessionState(repoRoot, sessionID);
+    const previous = stateStore.findTaskByID(state, prepared.branch) || stateStore.findTaskByWorktreePath(state, prepared.worktree_path);
     const next = stateStore.setActiveTask(
       stateStore.upsertTask(state, {
         task_id: prepared.branch,
@@ -456,6 +480,14 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
       prepared.branch,
     );
     await stateStore.saveSessionState(repoRoot, sessionID, next);
+    logger?.info(previous ? "session_binding_updated" : "session_binding_created", {
+      session_id: sessionID,
+      task_id: prepared.branch,
+      branch: prepared.branch,
+      worktree_path: prepared.worktree_path,
+      created_by: createdBy,
+      workspace_role: workspaceRole,
+    });
   }
   async function updateStateForCleanup(repoRoot, sessionID, removed) {
     if (!sessionID || !stateStore || removed.length === 0) return;
@@ -474,6 +506,11 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
       });
       if (stateStore.getActiveTask(state) === taskID) {
         state = stateStore.setActiveTask(state, null);
+        logger?.info("session_binding_cleared", {
+          session_id: sessionID,
+          task_id: taskID,
+          reason: "cleanup",
+        });
       }
     }
     await stateStore.saveSessionState(repoRoot, sessionID, state);
@@ -521,6 +558,14 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
         );
         await stateStore.saveSessionState(repoRoot, sessionID, next);
         const refreshed = stateStore.getActiveTaskRecord(next);
+        logger?.info("session_binding_updated", {
+          session_id: sessionID,
+          task_id: refreshed?.task_id,
+          branch: refreshed?.branch,
+          worktree_path: refreshed?.worktree_path,
+          created_by: refreshed?.created_by,
+          workspace_role: refreshed?.workspace_role,
+        });
         return { repoRoot, task: refreshed };
       }
       return { repoRoot, task: activeTask };
@@ -569,6 +614,11 @@ export function createWorktreeWorkflowService({ directory, git, stateStore }) {
     });
     if (stateStore.getActiveTask(state) === current.task_id) {
       state = stateStore.setActiveTask(state, null);
+      logger?.info("session_binding_cleared", {
+        session_id: sessionID,
+        task_id: current.task_id,
+        reason: nextStatus === "blocked" ? "blocked" : "completed",
+      });
     }
     await stateStore.saveSessionState(repoRoot, sessionID, state);
     return { task_id: current.task_id, status: nextStatus };

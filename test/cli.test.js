@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { __internal } from "../src/index.js";
 import { isInvokedAsScript, parseCliArgs } from "../src/cli.js";
-import { createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, withStateDirEnv } from "../test-support/helpers.js";
+import { createEmptyRemoteRepo, createPlugin, createRemoteRepo, execFileAsync, executeToolWithMetadata, withStateDirEnv } from "../test-support/helpers.js";
 
 const cliPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/cli.js");
 
@@ -181,6 +181,19 @@ test("CLI surfaces an actionable error when the configured remote is missing", a
     await assert.rejects(
       execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: fixture.repoPath }),
       /Could not fetch base branch information from remote "origin"/i,
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("CLI surfaces an actionable error when the remote has no base branch yet", async () => {
+  const fixture = await createEmptyRemoteRepo();
+
+  try {
+    await assert.rejects(
+      execFileAsync("node", [cliPath, "wt-clean", "preview"], { cwd: fixture.repoPath }),
+      /does not have branch "main" yet/i,
     );
   } finally {
     await fixture.cleanup();
