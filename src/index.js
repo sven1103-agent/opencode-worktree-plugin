@@ -18,6 +18,7 @@ import {
   inferTaskLifecycleTransition,
   rewriteRepoScopedPathIntoWorktree,
 } from "./core/task-binding.js";
+import { createDecisionLogger } from "./runtime/decision-logger.js";
 import { createRuntimeStateStore } from "./runtime/state-store.js";
 
 function publishStructuredResult(context, result) {
@@ -165,11 +166,13 @@ export const __internal = {
 
 export const pluginID = "@sven1103/opencode-worktree-workflow";
 
-export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
+export const WorktreeWorkflowPlugin = async ({ $, directory, logger: providedLogger = null }) => {
+  const logger = providedLogger || createDecisionLogger();
   const service = createWorktreeWorkflowService({
     directory,
     git: createGitRunner($, directory),
     stateStore: createRuntimeStateStore(),
+    logger,
   });
 
   async function onToolExecuteBefore(input, output) {
@@ -181,12 +184,15 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
 
     const sessionID = input?.sessionID;
     let binding = null;
+    let repoRootForLogging = null;
 
     if (classification.requiresIsolation) {
       if (!sessionID) throw new Error(`Isolation required for ${toolName || "tool"} but sessionID is missing.`);
       const repoRoot = await service.getRepoRoot();
+      repoRootForLogging = repoRoot;
       for (const key of rewritePolicy.opaqueArgKeys) {
         if (hasOpaqueRepoRootAbsoluteReference({ value: args[key], repoRoot })) {
+          logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason: "opaque-repo-root-reference", session_id: sessionID });
           throw new Error(`Blocked: ${toolName} ${key} includes repo-root absolute path that cannot be safely rewritten.`);
         }
       }
@@ -197,11 +203,23 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       });
     } else if (sessionID) {
       const repoRoot = await service.getRepoRoot();
+      repoRootForLogging = repoRoot;
       const { activeTask } = await service.getSessionBinding({ repoRoot, sessionID });
       if (activeTask?.worktree_path) binding = { repoRoot, task: activeTask };
     }
 
-    if (!binding) return;
+    if (!binding) {
+      for (const key of rewritePolicy.pathArgKeys) {
+        const hasArg = key in args;
+        logger.info("tool_path_rewrite_skipped", {
+          tool: toolName,
+          arg_key: key,
+          reason: hasArg ? "no-active-binding" : "arg-missing",
+          session_id: sessionID,
+        });
+      }
+      return;
+    }
 
     if (toolName === "task") {
       const handoffPath = resolveSafeHandoffPath({
@@ -230,13 +248,39 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
       nextArgs.path = binding.task.worktree_path;
     }
     for (const key of rewritePolicy.pathArgKeys) {
-      if (key in nextArgs) {
-        nextArgs[key] = rewriteRepoScopedPathIntoWorktree({
-          value: nextArgs[key],
-          repoRoot: binding.repoRoot,
-          worktreePath: binding.task.worktree_path,
-        });
+      if (!(key in nextArgs)) {
+        logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason: "arg-missing", session_id: sessionID, task_id: binding.task.task_id });
+        continue;
       }
+      const before = nextArgs[key];
+      const after = rewriteRepoScopedPathIntoWorktree({
+        value: nextArgs[key],
+        repoRoot: binding.repoRoot,
+        worktreePath: binding.task.worktree_path,
+      });
+      nextArgs[key] = after;
+      if (before !== after) {
+        logger.info("tool_path_rewrite_applied", { tool: toolName, arg_key: key, session_id: sessionID, task_id: binding.task.task_id });
+        logger.debug("tool_path_rewrite_applied", {
+          tool: toolName,
+          arg_key: key,
+          session_id: sessionID,
+          task_id: binding.task.task_id,
+          before_path: typeof before === "string" ? before : String(before),
+          after_path: typeof after === "string" ? after : String(after),
+        });
+        continue;
+      }
+      let reason = "outside-repo-root";
+      if (typeof before === "string" && before.trim()) {
+        const resolved = path.resolve(before);
+        const inWorktree = (() => {
+          const relative = path.relative(path.resolve(binding.task.worktree_path), resolved);
+          return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+        })();
+        if (inWorktree) reason = "already-in-worktree";
+      }
+      logger.info("tool_path_rewrite_skipped", { tool: toolName, arg_key: key, reason, session_id: sessionID, task_id: binding.task.task_id, repo_root_known: Boolean(repoRootForLogging) });
     }
 
     output.args = nextArgs;
@@ -282,11 +326,13 @@ export const WorktreeWorkflowPlugin = async ({ $, directory }) => {
                 };
                 return;
               } catch {
+                logger.info("nonfatal_plugin_error", { stage: "task_advisory_cleanup_preview", session_id: sessionID, message: "Cleanup advisory preview failed." });
                 // Advisory preview is non-fatal.
               }
             }
           }
         } catch {
+          logger.info("nonfatal_plugin_error", { stage: "task_lifecycle_inference", session_id: sessionID, message: "Task lifecycle correlation failed." });
           // Artifact correlation/lifecycle inference is non-fatal.
         }
       }
